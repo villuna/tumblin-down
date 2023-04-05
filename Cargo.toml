@@ -1,0 +1,29 @@
+[package]
+name = "tumblin-down"
+version = "0.1.0"
+edition = "2021"
+authors = ["luna 'villi' borella <ulfrthewolf@gmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+log = "0.4"
+wgpu = "0.15"
+winit = "0.28"
+env_logger = "0.10.0"
+tobj = { version = "3.2.1", features = ["async"] }
+tokio = "1.27.0"
+
+[target.'cfg(target_arch="wasm32")'.dependencies]
+console_error_panic_hook = "0.1.7"
+wgpu = { version = "0.15.1", features = ["webgl"] }
+wasm-bindgen = "0.2"
+console_log = "1.0"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Document", "Window", "Element"] }
+
+# To make tobj work
+getrandom = { version = "0.2", features = ["js"] }
