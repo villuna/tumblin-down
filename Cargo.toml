@@ -15,7 +15,9 @@ wgpu = "0.15"
 winit = "0.28"
 env_logger = "0.10.0"
 tobj = { version = "3.2.1", features = ["async"] }
-tokio = "1.27.0"
+anyhow = "1.0.70"
+cfg-if = "1.0.0"
+pollster = "0.3.0"
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"

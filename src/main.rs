@@ -1,5 +1,5 @@
 use tumblin_down::*;
 
 fn main() {
-    run();
+    pollster::block_on(run());
 }
