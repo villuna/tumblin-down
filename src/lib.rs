@@ -1,3 +1,6 @@
+// For now...
+#![allow(unused)]
+
 use cfg_if::cfg_if;
 use winit::{
     dpi::PhysicalSize,
@@ -7,6 +10,8 @@ use winit::{
 };
 
 mod app;
+mod resources;
+mod texture;
 
 use app::*;
 
@@ -71,31 +76,31 @@ pub async fn run() {
                     ..
                 } => {
                     control_flow.set_exit();
-                },
+                }
 
                 WindowEvent::Resized(size) => {
                     app.resize(size);
-                },
+                }
 
                 WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                     app.resize(*new_inner_size);
-                },
+                }
 
                 _ => {}
             }
-        },
+        }
 
         Event::RedrawRequested(window_id) if window_id == app.window().id() => {
             app.update();
-            
+
             match app.render() {
-                Ok(_) => {},
+                Ok(_) => {}
 
                 Err(wgpu::SurfaceError::Lost) => app.resize(*app.size()),
                 Err(wgpu::SurfaceError::OutOfMemory) => control_flow.set_exit(),
                 Err(e) => log::error!("{e:?}"),
             }
-        },
+        }
 
         Event::MainEventsCleared => app.window().request_redraw(),
 
