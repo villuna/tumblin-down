@@ -12,6 +12,7 @@ use winit::{
 mod app;
 mod resources;
 mod texture;
+mod model;
 
 use app::*;
 

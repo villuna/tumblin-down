@@ -6,7 +6,7 @@ use winit::{
     window::Window,
 };
 
-use crate::{resources, texture};
+use crate::{resources, texture, model::{self, Vertex}};
 
 const CLEAR_COLOUR: wgpu::Color = wgpu::Color {
     r: 0.5,
@@ -14,48 +14,6 @@ const CLEAR_COLOUR: wgpu::Color = wgpu::Color {
     b: 0.98,
     a: 1.0,
 };
-
-// This is just for testing my render pipeline works now before i implement
-// model loading and rendering
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
-struct Vertex {
-    pos: [f32; 3],
-    tex_coord: [f32; 2],
-}
-
-impl Vertex {
-    const ATTRS: &[wgpu::VertexAttribute] =
-        &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
-    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as _,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: Self::ATTRS,
-        }
-    }
-}
-
-const TEST_VERTICES: &[Vertex] = &[
-    Vertex {
-        pos: [-0.5, 0.5, 0.0],
-        tex_coord: [0.0, 0.0],
-    },
-    Vertex {
-        pos: [0.5, 0.5, 0.0],
-        tex_coord: [1.0, 0.0],
-    },
-    Vertex {
-        pos: [0.5, -0.5, 0.0],
-        tex_coord: [1.0, 1.0],
-    },
-    Vertex {
-        pos: [-0.5, -0.5, 0.0],
-        tex_coord: [0.0, 1.0],
-    },
-];
-
-const TEST_INDICES: &[u16] = &[0, 3, 1, 3, 2, 1];
 
 pub struct App {
     // WGPU stuff
@@ -67,13 +25,11 @@ pub struct App {
     queue: wgpu::Queue,
     size: PhysicalSize<u32>,
     window: Window,
+    pipeline: wgpu::RenderPipeline,
+    depth_texture: texture::Texture,
     // The rest of the app
     // Since this is so simple there's not really much
-    test_texture: texture::Texture,
-    test_bind_group: wgpu::BindGroup,
-    test_vertex_buffer: wgpu::Buffer,
-    test_index_buffer: wgpu::Buffer,
-    pipeline: wgpu::RenderPipeline,
+    model: model::Model,
 }
 
 impl App {
@@ -142,72 +98,42 @@ impl App {
 
         surface.configure(&device, &config);
 
-        // -- OTHER STUFF --
-        let test_texture =
-            texture::Texture::load_texture(&device, &queue, "assets/dababy.jpg").await?;
-
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("texture bind group descriptor"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-
-        let test_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("test bind group"),
-            layout: &texture_bind_group_layout,
+        let texture_bind_grop_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { 
+            label: Some("Texture bind group layout descriptor"), 
             entries: &[
-                wgpu::BindGroupEntry {
+                wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&test_texture.view),
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float {filterable: true},
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
                 },
-                wgpu::BindGroupEntry {
+                wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&test_texture.sampler),
-                },
-            ],
-        });
-
-        let test_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("test vertex buffer"),
-            contents: bytemuck::cast_slice(TEST_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let test_index_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("test index buffer"),
-            contents: bytemuck::cast_slice(TEST_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                }
+            ] 
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline layout descriptor"),
-            bind_group_layouts: &[&texture_bind_group_layout],
+            bind_group_layouts: &[&texture_bind_grop_layout],
             push_constant_ranges: &[],
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("texture shader"),
+            label: Some("model shader"),
             source: wgpu::ShaderSource::Wgsl(
-                resources::load_string("shaders/texture_shader.wgsl").await?.into(),
+                resources::load_string("shaders/model_shader.wgsl").await?.into(),
             ),
         });
+
+        let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth texture");
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("render pipeline"),
@@ -215,7 +141,7 @@ impl App {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[model::ModelVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -238,7 +164,13 @@ impl App {
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             }, 
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -247,6 +179,10 @@ impl App {
             multiview: None,
         });
 
+        // -- OTHER STUFF --
+        
+        let model = model::Model::load(&device, &queue, "assets/rei/rei.obj", &texture_bind_grop_layout).await?;
+
         Ok(Self {
             surface,
             config,
@@ -254,12 +190,9 @@ impl App {
             queue,
             size,
             window,
-
-            test_texture,
-            test_bind_group,
-            test_vertex_buffer,
-            test_index_buffer,
             pipeline,
+            depth_texture,
+            model,
         })
     }
 
@@ -283,14 +216,26 @@ impl App {
                     store: true,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { 
+                view: &self.depth_texture.view, 
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: true,
+                }), 
+                stencil_ops: None,
+            }),
         });
 
         render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, &self.test_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.test_vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.test_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..TEST_INDICES.len() as _, 0, 0..1);
+
+        for mesh in self.model.meshes.iter() {
+            let material = &self.model.materials[mesh.material];
+
+            render_pass.set_bind_group(0, &material.diffuse_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+        }
 
         drop(render_pass);
 
@@ -327,6 +272,7 @@ impl App {
             self.config.width = size.width;
             self.config.height = size.height;
             self.surface.configure(&self.device, &self.config);
+            self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth texture");
         }
     }
 
