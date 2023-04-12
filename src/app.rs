@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use kira::{sound::static_sound::{StaticSoundData, StaticSoundSettings}, manager::{AudioManager, AudioManagerSettings, backend::DefaultBackend}};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     dpi::PhysicalSize,
@@ -6,7 +7,7 @@ use winit::{
     window::Window,
 };
 
-use crate::{resources, texture, model::{self, Vertex}, camera::CameraUniform};
+use crate::{resources::{self, load_bytes}, texture, model::{self, Vertex}, camera::CameraUniform};
 use crate::camera::Camera;
 use crate::input;
 
@@ -38,6 +39,9 @@ pub struct App {
     camera_buffer: wgpu::Buffer,
 
     keyboard: input::KeyboardWatcher,
+    // 
+    song: StaticSoundData,
+    audio_manager: AudioManager,
 }
 
 impl App {
@@ -235,6 +239,13 @@ impl App {
         
         let model = model::Model::load(&device, &queue, "assets/rei/rei.obj", &texture_bind_grop_layout).await?;
 
+        let song = StaticSoundData::from_cursor(
+            std::io::Cursor::new(load_bytes("assets/komm-susser-tod.ogg").await?),
+            StaticSoundSettings::default(), 
+        )?;
+
+        let audio_manager = AudioManager::new(AudioManagerSettings::default())?;
+
         Ok(Self {
             surface,
             config,
@@ -250,6 +261,8 @@ impl App {
             camera_buffer,
 
             keyboard: input::KeyboardWatcher::new(),
+            song,
+            audio_manager,
         })
     }
 
@@ -345,5 +358,9 @@ impl App {
 
     pub fn window(&self) -> &Window {
         &self.window
+    }
+
+    pub fn play_music(&mut self) {
+        self.audio_manager.play(self.song.clone()).unwrap();
     }
 }

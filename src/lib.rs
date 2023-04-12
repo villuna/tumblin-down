@@ -62,6 +62,7 @@ pub async fn run() {
     }
 
     let mut app = App::new(window).await.unwrap();
+    app.play_music();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent { window_id, event }

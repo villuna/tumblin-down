@@ -22,6 +22,7 @@ bytemuck = { version = "1.13.1", features = ["derive"] }
 image = { version = "0.24.6", features = ["png", "jpeg"] }
 cgmath = "0.18.0"
 relative-path = "1.8.0"
+kira = { version = "0.7.3", features = ["ogg"] }
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
