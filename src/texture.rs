@@ -24,8 +24,7 @@ impl Texture {
             sample_count: crate::app::SAMPLE_COUNT,
             dimension: wgpu::TextureDimension::D2,
             format: Self::DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         };
         let texture = device.create_texture(&desc);

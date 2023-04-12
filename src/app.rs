@@ -192,7 +192,9 @@ impl App {
             ),
         });
 
+        log::info!("Creating depth texture...");
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth texture");
+        log::info!("Created!");
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("render pipeline"),
