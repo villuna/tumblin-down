@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use kira::{sound::static_sound::{StaticSoundData, StaticSoundSettings}, manager::{AudioManager, AudioManagerSettings, backend::DefaultBackend}};
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{util::{BufferInitDescriptor, DeviceExt}, TextureViewDescriptor};
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -18,6 +18,7 @@ const CLEAR_COLOUR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+pub const SAMPLE_COUNT: u32 = 4;
 pub struct App {
     // WGPU stuff
     // TODO: separate this into its own Renderer struct. It should have a nice
@@ -30,6 +31,8 @@ pub struct App {
     window: Window,
     pipeline: wgpu::RenderPipeline,
     depth_texture: texture::Texture,
+    msaa_texture: wgpu::Texture,
+    msaa_view: wgpu::TextureView,
     // The rest of the app
     // Since this is so simple there's not really much
     model: model::Model,
@@ -110,7 +113,7 @@ impl App {
 
         surface.configure(&device, &config);
 
-        let texture_bind_grop_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { 
+        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { 
             label: Some("Texture bind group layout descriptor"), 
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -178,7 +181,7 @@ impl App {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline layout descriptor"),
-            bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_grop_layout],
+            bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -228,16 +231,28 @@ impl App {
                 bias: Default::default(),
             }),
             multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
+                count: SAMPLE_COUNT,
+                ..Default::default()
             },
             multiview: None,
         });
 
+        let msaa_texture = device.create_texture(&wgpu::TextureDescriptor { 
+            label: Some("msaa texture"), 
+            size: wgpu::Extent3d { width: size.width, height: size.height, depth_or_array_layers: 1 },
+            sample_count: SAMPLE_COUNT, 
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format, 
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            mip_level_count: 1,
+            view_formats: &[]
+        });
+
+        let msaa_view = msaa_texture.create_view(&TextureViewDescriptor::default());
+
         // -- OTHER STUFF --
         
-        let model = model::Model::load(&device, &queue, "assets/rei/rei.obj", &texture_bind_grop_layout).await?;
+        let model = model::Model::load(&device, &queue, "assets/rei/rei.obj", &texture_bind_group_layout).await?;
 
         let song = StaticSoundData::from_cursor(
             std::io::Cursor::new(load_bytes("assets/komm-susser-tod.ogg").await?),
@@ -259,6 +274,8 @@ impl App {
             camera,
             camera_bind_group,
             camera_buffer,
+            msaa_texture,
+            msaa_view,
 
             keyboard: input::KeyboardWatcher::new(),
             song,
@@ -279,8 +296,8 @@ impl App {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
+                view: &self.msaa_view,
+                resolve_target: Some(&view),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(CLEAR_COLOUR),
                     store: true,
