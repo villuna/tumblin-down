@@ -14,6 +14,7 @@ mod resources;
 mod texture;
 mod model;
 mod camera;
+mod input;
 
 use app::*;
 

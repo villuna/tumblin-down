@@ -8,6 +8,7 @@ use winit::{
 
 use crate::{resources, texture, model::{self, Vertex}, camera::CameraUniform};
 use crate::camera::Camera;
+use crate::input;
 
 const CLEAR_COLOUR: wgpu::Color = wgpu::Color {
     r: 0.5,
@@ -35,6 +36,8 @@ pub struct App {
     // TODO: Put this into the camera struct
     camera_bind_group: wgpu::BindGroup,
     camera_buffer: wgpu::Buffer,
+
+    keyboard: input::KeyboardWatcher,
 }
 
 impl App {
@@ -245,6 +248,8 @@ impl App {
             camera,
             camera_bind_group,
             camera_buffer,
+
+            keyboard: input::KeyboardWatcher::new(),
         })
     }
 
@@ -299,6 +304,7 @@ impl App {
     }
 
     pub fn process_input(&mut self, event: &WindowEvent) -> bool {
+        self.keyboard.process_input(event);
         match event {
             WindowEvent::KeyboardInput {
                 input:
@@ -318,8 +324,10 @@ impl App {
     }
 
     pub fn update(&mut self) {
-        self.camera.h_angle += 0.01;
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera.to_uniform()]));
+        if self.camera.update(&self.keyboard) {
+            println!("eye: {:?}", self.camera.eye);
+            self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera.to_uniform()]));
+        }
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
