@@ -366,6 +366,19 @@ impl App {
             self.config.height = size.height;
             self.surface.configure(&self.device, &self.config);
             self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth texture");
+
+            self.msaa_texture = self.device.create_texture(&wgpu::TextureDescriptor { 
+                label: Some("msaa texture"), 
+                size: wgpu::Extent3d { width: self.config.width, height: self.config.height, depth_or_array_layers: 1 },
+                sample_count: SAMPLE_COUNT, 
+                dimension: wgpu::TextureDimension::D2,
+                format: self.config.format, 
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                mip_level_count: 1,
+                view_formats: &[]
+            });
+
+            self.msaa_view = self.msaa_texture.create_view(&TextureViewDescriptor::default());
         }
     }
 
