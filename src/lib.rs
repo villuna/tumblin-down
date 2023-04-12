@@ -13,6 +13,7 @@ mod app;
 mod resources;
 mod texture;
 mod model;
+mod camera;
 
 use app::*;
 

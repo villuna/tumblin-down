@@ -46,8 +46,10 @@ impl Model {
         // Get the path of the parent so we can load materials
         let parent = std::path::Path::new(filename).parent().unwrap_or(std::path::Path::new(""));
 
+        // After doing some testing, it seems like relative_path isn't very sophisticated
+        // so TODO: Refactor this to just use normal paths and save a dependency?
         let format_path = |path: &str| {
-        let new_path = relative_path::RelativePath::new(path).to_path(parent);
+            let new_path = relative_path::RelativePath::new(path).to_path(parent);
             new_path.as_path().to_str().unwrap().to_string()
         };
 

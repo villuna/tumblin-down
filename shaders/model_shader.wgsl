@@ -10,20 +10,30 @@ struct VertexOutput {
     // Don't need the normal just yet
 };
 
+struct Camera {
+    @location(0) matrix: mat4x4<f32>,
+};
+
+@group(0) @binding(0)
+var<uniform> camera: Camera;
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    // Orthographic projection - no camera just yet
+    var out: VertexOutput;
+    // Orthographic projection
     // DO NOT RENDER A 3D MODEL OF A HUMAN WITH AN ORTHOGRAPHIC PROJECTION
     // WEIRDEST SHIT IVE EVER SEEN
-    var out: VertexOutput;
     // out.clip_position = vec4<f32>(in.position.x/2.0, in.position.y/2.0 - 1.0, in.position.z, 1.0);
+
+    // Perspective projection using the camera uniform binding
+    out.clip_position = camera.matrix * vec4<f32>(in.position, 1.0);
     out.tex_coords = in.tex_coords;
     return out;
 }
 
-@group(0) @binding(0)
+@group(1) @binding(0)
 var diffuse_texture: texture_2d<f32>;
-@group(0) @binding(1)
+@group(1) @binding(1)
 var diffuse_sampler: sampler;
 
 @fragment

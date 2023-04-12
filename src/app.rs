@@ -6,7 +6,8 @@ use winit::{
     window::Window,
 };
 
-use crate::{resources, texture, model::{self, Vertex}};
+use crate::{resources, texture, model::{self, Vertex}, camera::CameraUniform};
+use crate::camera::Camera;
 
 const CLEAR_COLOUR: wgpu::Color = wgpu::Color {
     r: 0.5,
@@ -30,6 +31,10 @@ pub struct App {
     // The rest of the app
     // Since this is so simple there's not really much
     model: model::Model,
+    camera: Camera,
+    // TODO: Put this into the camera struct
+    camera_bind_group: wgpu::BindGroup,
+    camera_buffer: wgpu::Buffer,
 }
 
 impl App {
@@ -120,9 +125,53 @@ impl App {
             ] 
         });
 
+        let camera = Camera {
+            eye: (0.0, 2.0, 6.0).into(),
+            h_angle: 0.0,
+            v_angle: 0.0,
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+
+        let camera_buffer = device.create_buffer_init(&BufferInitDescriptor { 
+            label: Some("Camera uniform buffer"), 
+            contents: bytemuck::cast_slice(&[camera.to_uniform()]), 
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
+
+        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Camera bind group layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer { 
+                        ty: wgpu::BufferBindingType::Uniform, 
+                        has_dynamic_offset: false, 
+                        min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<CameraUniform>() as _),
+                    },
+                    count: None,
+                }
+            ],
+        });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor { 
+            label: Some("Camera bind group"), 
+            layout: &camera_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                }
+            ] 
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline layout descriptor"),
-            bind_group_layouts: &[&texture_bind_grop_layout],
+            bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_grop_layout],
             push_constant_ranges: &[],
         });
 
@@ -193,6 +242,9 @@ impl App {
             pipeline,
             depth_texture,
             model,
+            camera,
+            camera_bind_group,
+            camera_buffer,
         })
     }
 
@@ -227,11 +279,12 @@ impl App {
         });
 
         render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
         for mesh in self.model.meshes.iter() {
             let material = &self.model.materials[mesh.material];
 
-            render_pass.set_bind_group(0, &material.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &material.diffuse_bind_group, &[]);
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
@@ -264,7 +317,10 @@ impl App {
         }
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        self.camera.h_angle += 0.01;
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera.to_uniform()]));
+    }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         if size.width > 0 && size.height > 0 {
