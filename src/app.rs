@@ -325,7 +325,6 @@ impl App {
 
     pub fn update(&mut self) {
         if self.camera.update(&self.keyboard) {
-            println!("eye: {:?}", self.camera.eye);
             self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera.to_uniform()]));
         }
     }
