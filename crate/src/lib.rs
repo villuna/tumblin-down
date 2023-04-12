@@ -1,6 +1,8 @@
 // For now...
 #![allow(unused)]
 
+use std::sync::{Arc, Mutex};
+
 use cfg_if::cfg_if;
 use winit::{
     dpi::PhysicalSize,
@@ -50,6 +52,7 @@ pub async fn run() {
                 .and_then(|win| win.inner_height().ok())
                 .and_then(|hei| hei.as_f64())
                 .unwrap() as u32;
+
         } else {
             let width = WIDTH;
             let height = HEIGHT;
@@ -72,6 +75,7 @@ pub async fn run() {
             .and_then(|document| {
                 let dst = document.get_element_by_id("wasm-example")?;
                 let canvas = web_sys::Element::from(window.canvas());
+                canvas.set_id("render-canvas");
                 dst.append_child(&canvas).ok()?;
                 Some(())
             })
@@ -81,50 +85,95 @@ pub async fn run() {
     let mut app = App::new(window).await.unwrap();
     app.play_music();
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent { window_id, event }
-            if window_id == app.window().id() && !app.process_input(&event) =>
-        {
-            match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
-                            state: ElementState::Pressed,
-                            ..
-                        },
-                    ..
-                } => {
-                    control_flow.set_exit();
-                }
+    #[cfg(target_arch = "wasm32")]
+    let app = Arc::new(Mutex::new(app));
 
-                WindowEvent::Resized(size) => {
-                    app.resize(size);
-                }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let app = app.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::UiEvent| {
+            let width = web_sys::window()
+                .and_then(|win| win.inner_width().ok())
+                .and_then(|wid| wid.as_f64())
+                .unwrap() as u32;
 
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    app.resize(*new_inner_size);
-                }
+            let height = web_sys::window()
+                .and_then(|win| win.inner_height().ok())
+                .and_then(|hei| hei.as_f64())
+                .unwrap() as u32;
 
-                _ => {}
+            app.lock().unwrap().resize(PhysicalSize::new(width, height));
+
+            web_sys::window()
+                .and_then(|win| win.document())
+                .and_then(|document| {
+                    let canvas: web_sys::HtmlCanvasElement = document.get_element_by_id("render-canvas")?.unchecked_into();
+                    log::info!("set canvas size to ({width}, {height})");
+                    canvas.set_width(width);
+                    canvas.set_height(height);
+                    canvas.style().set_property("width", &format!("{width}px")).ok()?;
+                    canvas.style().set_property("height", &format!("{height}px")).ok()?;
+                    Some(())
+                }).unwrap();
+        });
+        web_sys::window().unwrap()
+            .add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref()).expect("couldn't add event listener");
+
+        closure.forget();
+    }
+
+    event_loop.run(move |event, _, control_flow| {
+        #[cfg(target_arch = "wasm32")]
+        let mut app = app.lock().unwrap();
+
+        match event {
+            Event::WindowEvent { window_id, event }
+                if window_id == app.window().id() && !app.process_input(&event) =>
+            {
+                match event {
+                    WindowEvent::CloseRequested
+                    | WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                state: ElementState::Pressed,
+                                ..
+                            },
+                        ..
+                    } => {
+                        control_flow.set_exit();
+                    }
+
+                    WindowEvent::Resized(size) => {
+                        app.resize(size);
+                    }
+
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        app.resize(*new_inner_size);
+                    }
+
+                    _ => {}
+                }
             }
-        }
 
-        Event::RedrawRequested(window_id) if window_id == app.window().id() => {
-            app.update();
+            Event::RedrawRequested(window_id) if window_id == app.window().id() => {
+                app.update();
 
-            match app.render() {
-                Ok(_) => {}
+                match app.render() {
+                    Ok(_) => {}
 
-                Err(wgpu::SurfaceError::Lost) => app.resize(*app.size()),
-                Err(wgpu::SurfaceError::OutOfMemory) => control_flow.set_exit(),
-                Err(e) => log::error!("{e:?}"),
+                    Err(wgpu::SurfaceError::Lost) => {
+                        let size = *app.size();
+                        app.resize(size);
+                    }
+                    Err(wgpu::SurfaceError::OutOfMemory) => control_flow.set_exit(),
+                    Err(e) => log::error!("{e:?}"),
+                }
             }
+
+            Event::MainEventsCleared => app.window().request_redraw(),
+
+            _ => {}
         }
-
-        Event::MainEventsCleared => app.window().request_redraw(),
-
-        _ => {}
     });
 }

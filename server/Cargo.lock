@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "server"
+name = "tumble_server"
 version = "0.1.0"
