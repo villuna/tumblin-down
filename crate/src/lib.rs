@@ -116,7 +116,7 @@ pub async fn run() {
         web_sys::window().unwrap()
             .add_event_listener_with_callback("resize", resize_closure.as_ref().unchecked_ref()).expect("couldn't add event listener");
 
-        closure.forget();
+        resize_closure.forget();
     }
 
     event_loop.run(move |event, _, control_flow| {
