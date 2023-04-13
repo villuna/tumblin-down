@@ -29,7 +29,19 @@
         console.log("welkum 2 my webzite!!");
 
         init().then(() => {
-            console.log("initted i suppose");
+            const canvas = document.getElementById("render-canvas");
+            
+            function resizeCanvas(_event) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+
+                // I feel like there should be a way to do this in css
+                // but height: 100%; width: 100% doesnt work
+                canvas.style.width = `${window.innerWidth}px`;
+                canvas.style.height = `${window.innerHeight}px`;
+            }
+
+            window.addEventListener("resize", resizeCanvas);
         });
     </script>
 </body>

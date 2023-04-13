@@ -41,6 +41,9 @@ pub async fn run() {
         }
     }
 
+    // Set the width and height of the window
+    // on web this is going to have to be the dimensions of the page
+    // so we need some web-specific code
     cfg_if! {
         if #[cfg(target_arch="wasm32")] {
             let width = web_sys::window()
@@ -85,13 +88,18 @@ pub async fn run() {
     let mut app = App::new(window).await.unwrap();
     app.play_music();
 
+    // On the web, we need to add an event listener to resize the window when the
+    // page is resized. This isn't in sync with the regular window events, so
+    // we need to wrap the app in a mutex.
+    // TODO: make the mutex control less data so we dont have to interrupt so much stuff
+    // every time the page is resized
     #[cfg(target_arch = "wasm32")]
     let app = Arc::new(Mutex::new(app));
 
     #[cfg(target_arch = "wasm32")]
     {
         let app = app.clone();
-        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::UiEvent| {
+        let resize_closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::UiEvent| {
             let width = web_sys::window()
                 .and_then(|win| win.inner_width().ok())
                 .and_then(|wid| wid.as_f64())
@@ -103,21 +111,10 @@ pub async fn run() {
                 .unwrap() as u32;
 
             app.lock().unwrap().resize(PhysicalSize::new(width, height));
-
-            web_sys::window()
-                .and_then(|win| win.document())
-                .and_then(|document| {
-                    let canvas: web_sys::HtmlCanvasElement = document.get_element_by_id("render-canvas")?.unchecked_into();
-                    log::info!("set canvas size to ({width}, {height})");
-                    canvas.set_width(width);
-                    canvas.set_height(height);
-                    canvas.style().set_property("width", &format!("{width}px")).ok()?;
-                    canvas.style().set_property("height", &format!("{height}px")).ok()?;
-                    Some(())
-                }).unwrap();
         });
+
         web_sys::window().unwrap()
-            .add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref()).expect("couldn't add event listener");
+            .add_event_listener_with_callback("resize", resize_closure.as_ref().unchecked_ref()).expect("couldn't add event listener");
 
         closure.forget();
     }
