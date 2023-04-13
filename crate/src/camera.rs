@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use cgmath::{Point3, Matrix4, perspective, Deg, Vector3, Rad, Matrix3, vec3, InnerSpace};
+use cgmath::{perspective, vec3, Deg, InnerSpace, Matrix3, Matrix4, Point3, Rad, Vector3};
 use winit::event::VirtualKeyCode;
 
 use crate::input::KeyboardWatcher;
@@ -49,7 +49,9 @@ impl Camera {
     }
 
     pub fn to_uniform(&self) -> CameraUniform {
-        CameraUniform { matrix: self.build_camera_matrix().into() }
+        CameraUniform {
+            matrix: self.build_camera_matrix().into(),
+        }
     }
 
     // Updates the direction of the camera in response to input.
@@ -95,7 +97,7 @@ impl Camera {
         }
 
         self.v_angle = (self.v_angle + vrot * ROTATION_SPEED).clamp(-HALFPI + 0.05, HALFPI - 0.05);
-        self.h_angle = (self.h_angle + hrot * ROTATION_SPEED) % (2.0*PI);
+        self.h_angle = (self.h_angle + hrot * ROTATION_SPEED) % (2.0 * PI);
 
         if hdir != 0.0 || fdir != 0.0 {
             let xz_dir = self.direction_matrix() * vec3(hdir, 0.0, fdir);

@@ -1,7 +1,10 @@
 use std::io::{BufReader, Cursor};
 
-use crate::{texture, resources};
-use wgpu::{vertex_attr_array, VertexBufferLayout, util::{DeviceExt, BufferInitDescriptor}};
+use crate::{resources, texture};
+use wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    vertex_attr_array, VertexBufferLayout,
+};
 
 pub trait Vertex {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a>;
@@ -32,19 +35,26 @@ pub struct Mesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
-    pub material: usize,
+    pub material: Option<usize>,
 }
 
 pub struct Material {
     pub name: String,
-    pub diffuse_texture: texture::Texture,
-    pub diffuse_bind_group: wgpu::BindGroup,
+    pub diffuse_texture: Option<texture::Texture>,
+    pub diffuse_bind_group: Option<wgpu::BindGroup>,
 }
 
 impl Model {
-    pub async fn load(device: &wgpu::Device, queue: &wgpu::Queue, filename: &str, texture_layout: &wgpu::BindGroupLayout) -> anyhow::Result<Self> {
+    pub async fn load(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        filename: &str,
+        texture_layout: Option<&wgpu::BindGroupLayout>,
+    ) -> anyhow::Result<Self> {
         // Get the path of the parent so we can load materials
-        let parent = std::path::Path::new(filename).parent().unwrap_or(std::path::Path::new(""));
+        let parent = std::path::Path::new(filename)
+            .parent()
+            .unwrap_or(std::path::Path::new(""));
 
         // After doing some testing, it seems like relative_path isn't very sophisticated
         // so TODO: Refactor this to just use normal paths and save a dependency?
@@ -61,44 +71,43 @@ impl Model {
         let mut reader = BufReader::new(cursor);
 
         let (meshes, materials) = tobj::load_obj_buf_async(
-            &mut reader, 
+            &mut reader,
             &tobj::LoadOptions {
                 single_index: true,
                 triangulate: true,
                 ignore_points: true,
                 ignore_lines: true,
-            }, 
+            },
             |p| async move {
                 let filename = format_path(&p);
                 let mat_string = resources::load_string(&filename).await.unwrap();
                 let mat_cursor = Cursor::new(mat_string);
                 let mut mat_reader = BufReader::new(mat_cursor);
                 tobj::load_mtl_buf(&mut mat_reader)
-            }
-        ).await?;
+            },
+        )
+        .await?;
 
-        let meshes = meshes.into_iter()
+        let meshes = meshes
+            .into_iter()
             .map(|model| {
                 let mesh = model.mesh;
 
-                let vertices = (0..mesh.positions.len() / 3).map(|i| {
-                    ModelVertex {
+                let vertices = (0..mesh.positions.len() / 3)
+                    .map(|i| ModelVertex {
                         position: [
                             mesh.positions[3 * i],
                             mesh.positions[3 * i + 1],
                             mesh.positions[3 * i + 2],
                         ],
-                        tex_coords: [
-                            mesh.texcoords[2 * i],
-                            1.0 - mesh.texcoords[2 * i + 1]
-                        ],
+                        tex_coords: [mesh.texcoords[2 * i], 1.0 - mesh.texcoords[2 * i + 1]],
                         normal: [
                             mesh.normals[3 * i],
                             mesh.normals[3 * i + 1],
                             mesh.normals[3 * i + 2],
                         ],
-                    }
-                }).collect::<Vec<_>>();
+                    })
+                    .collect::<Vec<_>>();
 
                 let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
                     label: Some(&format!("{}/{} vertex buffer", filename, model.name)),
@@ -106,9 +115,9 @@ impl Model {
                     usage: wgpu::BufferUsages::VERTEX,
                 });
 
-                let index_buffer = device.create_buffer_init(&BufferInitDescriptor { 
-                    label: Some(&format!("{}/{} index buffer", filename, model.name)), 
-                    contents: bytemuck::cast_slice(&mesh.indices), 
+                let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some(&format!("{}/{} index buffer", filename, model.name)),
+                    contents: bytemuck::cast_slice(&mesh.indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
 
@@ -117,36 +126,43 @@ impl Model {
                     vertex_buffer,
                     index_buffer,
                     num_indices: mesh.indices.len() as _,
-                    material: mesh.material_id.unwrap_or(0),
+                    material: mesh.material_id,
                 }
-            }).collect::<Vec<_>>();
-        
+            })
+            .collect::<Vec<_>>();
+
         let mut new_materials = Vec::new();
 
         for mat in materials?.into_iter() {
             let diffuse_filename = format_path(&mat.diffuse_texture);
+            println!("filename: {}", mat.diffuse_texture);
             let texture = texture::Texture::load_texture(&device, &queue, &diffuse_filename)
-                .await?;
+                .await
+                .ok();
 
             // TODO: This rubs me the wrong way. We're passed in the texture bind group layout
             // but then we just go ahead and use this layout instead. Is there some way to
             // make it so the object loading function doesn't say anything about the layout
             // of the texture bind group?
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor { 
-                label: Some(&format!("{}/{} texture bind group", filename, mat.name)), 
-                layout: texture_layout, 
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&texture.view),
-                    },
-
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&texture.sampler),
-                    },
-                ],
-            });
+            let bind_group = texture
+                .as_ref()
+                .and_then(|tex| Some((tex, texture_layout?)))
+                .map(|(texture, layout)| {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some(&format!("{}/{} texture bind group", filename, mat.name)),
+                        layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(&texture.view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                            },
+                        ],
+                    })
+                });
 
             new_materials.push(Material {
                 name: mat.name,

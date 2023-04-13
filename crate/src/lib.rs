@@ -12,11 +12,12 @@ use winit::{
 };
 
 mod app;
-mod resources;
-mod texture;
-mod model;
 mod camera;
 mod input;
+mod light;
+mod model;
+mod resources;
+mod texture;
 
 use app::*;
 
@@ -113,8 +114,10 @@ pub async fn run() {
             app.lock().unwrap().resize(PhysicalSize::new(width, height));
         });
 
-        web_sys::window().unwrap()
-            .add_event_listener_with_callback("resize", resize_closure.as_ref().unchecked_ref()).expect("couldn't add event listener");
+        web_sys::window()
+            .unwrap()
+            .add_event_listener_with_callback("resize", resize_closure.as_ref().unchecked_ref())
+            .expect("couldn't add event listener");
 
         resize_closure.forget();
     }

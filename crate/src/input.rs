@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use winit::event::{VirtualKeyCode, WindowEvent, KeyboardInput, ElementState};
+use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 // A very basic input system. Why did I write it myself?
 // because it's more work to figure out someone else's implementation.
@@ -17,19 +17,23 @@ impl KeyboardWatcher {
 
     pub fn process_input(&mut self, event: &WindowEvent) {
         match event {
-            WindowEvent::KeyboardInput { input: KeyboardInput {
-                state,
-                virtual_keycode: Some(keycode),
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
                 ..
-            }, ..} => {
+            } => {
                 if *state == ElementState::Pressed {
                     self.pressed.insert(*keycode);
                 } else {
                     self.pressed.remove(keycode);
                 }
-            },
+            }
 
-            _ => {},
+            _ => {}
         }
     }
 
