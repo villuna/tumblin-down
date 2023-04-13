@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use kira::{
-    manager::{backend::DefaultBackend, AudioManager, AudioManagerSettings},
+    manager::{AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundSettings},
 };
 use wgpu::{
@@ -67,6 +67,7 @@ pub struct App {
 
 fn create_render_pipeline(
     device: &wgpu::Device,
+    label: &str,
     layout: &wgpu::PipelineLayout,
     colour_format: wgpu::TextureFormat,
     depth_format: Option<wgpu::TextureFormat>,
@@ -75,7 +76,7 @@ fn create_render_pipeline(
     samples: u32,
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("render pipeline"),
+        label: Some(label),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
             module: shader,
@@ -263,7 +264,7 @@ impl App {
                 label: Some("light bind group layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -308,6 +309,7 @@ impl App {
 
         let pipeline = create_render_pipeline(
             &device,
+            "render pipeline",
             &pipeline_layout,
             config.format,
             Some(texture::Texture::DEPTH_FORMAT),
@@ -330,6 +332,7 @@ impl App {
 
         let light_pipeline = create_render_pipeline(
             &device,
+            "light pipeline",
             &light_pipeline_layout,
             config.format,
             Some(texture::Texture::DEPTH_FORMAT),

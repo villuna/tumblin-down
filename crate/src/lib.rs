@@ -1,6 +1,7 @@
 // For now...
-#![allow(unused)]
+// #![allow(unused)]
 
+#[cfg(target_arch = "wasm32")]
 use std::sync::{Arc, Mutex};
 
 use cfg_if::cfg_if;
