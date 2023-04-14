@@ -23,6 +23,7 @@ pub struct Camera {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct CameraUniform {
+    position: [f32; 4],
     matrix: [[f32; 4]; 4],
 }
 
@@ -50,6 +51,7 @@ impl Camera {
 
     pub fn to_uniform(&self) -> CameraUniform {
         CameraUniform {
+            position: self.eye.to_homogeneous().into(),
             matrix: self.build_camera_matrix().into(),
         }
     }

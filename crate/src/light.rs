@@ -22,6 +22,6 @@ impl LightUniform {
     pub fn update(&mut self) {
         let position: Vector3<f32> = self.position.into();
         self.position =
-            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(1.0)) * position).into();
+            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(0.8)) * position).into();
     }
 }

@@ -1,6 +1,7 @@
 use std::io::{BufReader, Cursor};
 
 use crate::{resources, texture};
+use cgmath::{Vector3, Quaternion, Matrix4};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     vertex_attr_array, VertexBufferLayout,
@@ -10,14 +11,23 @@ pub trait Vertex {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a>;
 }
 
-// By the grace of god these values add up to a multiple of 4
-// allelujah!
 #[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C)]
 pub struct ModelVertex {
     position: [f32; 3],
     tex_coords: [f32; 2],
     normal: [f32; 3],
+}
+
+#[derive(Copy, Clone, Debug, bytemuck::Zeroable, bytemuck::Pod)]
+#[repr(C)]
+pub struct InstanceRaw {
+    matrix: [[f32; 4]; 4],
+}
+
+pub struct Instance {
+    pub position: Vector3<f32>,
+    pub rotation: Quaternion<f32>,
 }
 
 /// A 3d object that may be made up of multiple meshes,
@@ -135,7 +145,6 @@ impl Model {
 
         for mat in materials?.into_iter() {
             let diffuse_filename = format_path(&mat.diffuse_texture);
-            println!("filename: {}", mat.diffuse_texture);
             let texture = texture::Texture::load_texture(&device, &queue, &diffuse_filename)
                 .await
                 .ok();
@@ -164,17 +173,27 @@ impl Model {
                     })
                 });
 
+            println!("Shininess: {}", mat.shininess);
+
             new_materials.push(Material {
                 name: mat.name,
                 diffuse_texture: texture,
                 diffuse_bind_group: bind_group,
-            })
+            });
         }
 
         Ok(Model {
             meshes,
             materials: new_materials,
         })
+    }
+}
+
+impl Instance {
+    fn to_raw(&self) -> InstanceRaw {
+        InstanceRaw { 
+            matrix: (Matrix4::from_translation(self.position) * Matrix4::from(self.rotation)).into(),
+        }
     }
 }
 
@@ -187,6 +206,21 @@ impl Vertex for ModelVertex {
     fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
             array_stride: std::mem::size_of::<ModelVertex>() as _,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: Self::ATTRS,
+        }
+    }
+}
+
+impl InstanceRaw {
+    const ATTRS: &[wgpu::VertexAttribute] =
+        &vertex_attr_array![5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
+}
+
+impl Vertex for InstanceRaw {
+    fn desc<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout { 
+            array_stride: std::mem::size_of::<InstanceRaw>() as _,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: Self::ATTRS,
         }
