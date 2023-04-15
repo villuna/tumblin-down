@@ -42,6 +42,8 @@
                 canvas.style.height = `${window.innerHeight}px`;
             }
 
+            // Need to call this manually once as it seems to not work on certain screens
+            resizeCanvas();
             window.addEventListener("resize", resizeCanvas);
         });
     </script>
