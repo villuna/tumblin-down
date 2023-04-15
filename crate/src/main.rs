@@ -1,4 +1,6 @@
 use tumblin_down::*;
-fn main() {
-    pollster::block_on(run());
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    run().await;
 }

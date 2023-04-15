@@ -28,7 +28,7 @@ pub async fn load_bytes(filename: &str) -> anyhow::Result<Vec<u8>> {
                 .await?
                 .to_vec();
         } else {
-            let data = std::fs::read(filename)?;
+            let data = tokio::fs::read(filename).await?;
         }
     }
 
@@ -45,7 +45,7 @@ pub async fn load_string(filename: &str) -> anyhow::Result<String> {
                 .text()
                 .await?;
         } else {
-            let data = std::fs::read_to_string(filename)?;
+            let data = tokio::fs::read_to_string(filename).await?;
         }
     }
 

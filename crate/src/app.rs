@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use kira::{
     manager::{AudioManager, AudioManagerSettings},
-    sound::static_sound::{StaticSoundData, StaticSoundSettings},
+    sound::static_sound::{StaticSoundData, StaticSoundHandle},
 };
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -19,7 +21,7 @@ use crate::light;
 use crate::{
     camera::CameraUniform,
     model::{self, ModelVertex, Vertex},
-    resources::{self, load_bytes},
+    resources,
     texture,
 };
 
@@ -30,6 +32,12 @@ const CLEAR_COLOUR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+#[derive(PartialEq)]
+pub enum State {
+    Loading,
+    Playing,
+}
+
 pub const SAMPLE_COUNT: u32 = 4;
 pub struct App {
     // WGPU stuff
@@ -37,8 +45,8 @@ pub struct App {
     // rusty way of starting and finishing a render pass.
     surface: wgpu::Surface,
     config: wgpu::SurfaceConfiguration,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>,
     size: PhysicalSize<u32>,
     window: Window,
     pipeline: wgpu::RenderPipeline,
@@ -47,8 +55,8 @@ pub struct App {
     msaa_view: wgpu::TextureView,
     // The rest of the app
     // Since this is so simple there's not really much
-    rei_model: model::Model,
-    light_model: model::Model,
+    pub rei_model: Option<model::Model>,
+    pub light_model: Option<model::Model>,
     camera: Camera,
     // TODO: Put this into the camera struct
     camera_bind_group: wgpu::BindGroup,
@@ -61,8 +69,11 @@ pub struct App {
 
     keyboard: input::KeyboardWatcher,
     // Audio
-    song: StaticSoundData,
-    audio_manager: AudioManager,
+    pub song: Option<StaticSoundData>,
+    song_handle: Option<StaticSoundHandle>,
+    audio_manager: Option<AudioManager>,
+
+    pub state: State,
 }
 
 fn create_render_pipeline(
@@ -185,6 +196,7 @@ impl App {
 
         surface.configure(&device, &config);
 
+        /*
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Texture bind group layout descriptor"),
@@ -207,6 +219,7 @@ impl App {
                     },
                 ],
             });
+        */
 
         let camera = Camera {
             eye: (0.0, 2.0, 6.0).into(),
@@ -287,7 +300,7 @@ impl App {
             label: Some("pipeline layout descriptor"),
             bind_group_layouts: &[
                 &camera_bind_group_layout,
-                &texture_bind_group_layout,
+                texture::Texture::texture_bind_group_layout(&device),
                 &light_bind_group_layout,
             ],
             push_constant_ranges: &[],
@@ -358,35 +371,18 @@ impl App {
 
         let msaa_view = msaa_texture.create_view(&TextureViewDescriptor::default());
 
-        // -- OTHER STUFF --
-
-        let rei_model = model::Model::load(
-            &device,
-            &queue,
-            "assets/rei/rei.obj",
-            Some(&texture_bind_group_layout),
-        )
-        .await?;
-        let light_model = model::Model::load(&device, &queue, "assets/ike.obj", None).await?;
-
-        let song = StaticSoundData::from_cursor(
-            std::io::Cursor::new(load_bytes("assets/komm-susser-tod.ogg").await?),
-            StaticSoundSettings::default(),
-        )?;
-
-        let audio_manager = AudioManager::new(AudioManagerSettings::default())?;
 
         Ok(Self {
             surface,
             config,
-            device,
-            queue,
+            device: Arc::new(device),
+            queue: Arc::new(queue),
             size,
             window,
             pipeline,
             depth_texture,
-            rei_model,
-            light_model,
+            rei_model: None,
+            light_model: None,
             camera,
             camera_bind_group,
             camera_buffer,
@@ -394,16 +390,65 @@ impl App {
             msaa_view,
 
             keyboard: input::KeyboardWatcher::new(),
-            song,
-            audio_manager,
+            song: None,
+            song_handle: None,
+            audio_manager: None,
             light_uniform,
             light_buffer,
             light_bind_group,
             light_pipeline,
+
+            state: State::Loading,
         })
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        match self.state {
+            State::Loading => self.render_loading(),
+            State::Playing => self.render_loaded(),
+        }
+    }
+
+    pub fn render_loading(&mut self) -> Result<(), wgpu::SurfaceError> {
+        // TODO: Loading screen
+        let output = self.surface.get_current_texture()?;
+        let view = output.texture.create_view(&Default::default());
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+
+        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Render pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.msaa_view,
+                resolve_target: Some(&view),
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                    store: true,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_texture.view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: true,
+                }),
+                stencil_ops: None,
+            }),
+        });
+
+        drop(render_pass);
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        Ok(())
+    }
+
+    pub fn render_loaded(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
 
@@ -434,20 +479,23 @@ impl App {
         });
 
         // Light Model
+        let light_model = self.light_model.as_ref().unwrap();
         render_pass.set_pipeline(&self.light_pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         render_pass.set_bind_group(1, &self.light_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.light_model.meshes[0].vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.light_model.meshes[0].index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..self.light_model.meshes[0].num_indices as _, 0, 0..1);
+        render_pass.set_vertex_buffer(0, light_model.meshes[0].vertex_buffer.slice(..));
+        render_pass.set_index_buffer(light_model.meshes[0].index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..light_model.meshes[0].num_indices as _, 0, 0..1);
 
         // Rei
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         render_pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-        for mesh in self.rei_model.meshes.iter() {
-            let material = &self.rei_model.materials[mesh.material.unwrap()];
+        let rei_model = self.rei_model.as_ref().unwrap();
+
+        for mesh in rei_model.meshes.iter() {
+            let material = &rei_model.materials[mesh.material.unwrap()];
 
             render_pass.set_bind_group(1, material.diffuse_bind_group.as_ref().unwrap(), &[]);
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
@@ -539,6 +587,13 @@ impl App {
     }
 
     pub fn play_music(&mut self) {
-        self.audio_manager.play(self.song.clone()).unwrap();
+        if self.audio_manager.is_none() {
+            self.audio_manager = AudioManager::new(AudioManagerSettings::default()).ok();
+        }
+        self.song_handle = self.audio_manager.as_mut().unwrap().play(self.song.as_ref().unwrap().clone()).ok();
+    }
+
+    pub fn song_handle_mut(&mut self) -> Option<&mut StaticSoundHandle> {
+        self.song_handle.as_mut()
     }
 }
