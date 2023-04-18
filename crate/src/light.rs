@@ -3,9 +3,9 @@ use cgmath::{Deg, Quaternion, Rotation3, Vector3};
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct LightUniform {
-    position: [f32; 3],
+    pub position: [f32; 3],
     _padding0: u32,
-    colour: [f32; 3],
+    pub colour: [f32; 3],
     _padding1: u32,
 }
 

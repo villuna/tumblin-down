@@ -181,6 +181,8 @@ pub async fn run() {
             }
         }
 
+        app.egui_platform.handle_event(&event);
+
         match event {
             Event::WindowEvent { window_id, event }
                 if window_id == app.window().id() && !app.process_input(&event) =>

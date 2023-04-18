@@ -1,6 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::anyhow;
+use egui_wgpu::renderer::ScreenDescriptor;
+use egui_winit_platform::{Platform, PlatformDescriptor};
 use kira::{
     manager::{AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
@@ -72,6 +74,11 @@ pub struct App {
     pub song: Option<StaticSoundData>,
     song_handle: Option<StaticSoundHandle>,
     audio_manager: Option<AudioManager>,
+    
+    pub egui_platform: Platform,
+    egui_renderer: egui_wgpu::Renderer,
+
+    start_time: Instant,
 
     pub state: State,
 }
@@ -371,6 +378,19 @@ impl App {
 
         let msaa_view = msaa_texture.create_view(&TextureViewDescriptor::default());
 
+        let egui_platform = Platform::new(PlatformDescriptor {
+            physical_width: size.width,
+            physical_height: size.height,
+            scale_factor: window.scale_factor(),
+            ..Default::default()
+        });
+
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &device,
+            config.format,
+            Some(texture::Texture::DEPTH_FORMAT),
+            SAMPLE_COUNT
+        );
 
         Ok(Self {
             surface,
@@ -399,6 +419,9 @@ impl App {
             light_pipeline,
 
             state: State::Loading,
+            egui_platform,
+            egui_renderer,
+            start_time: Instant::now(),
         })
     }
 
@@ -452,11 +475,39 @@ impl App {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
 
+        let screen_descriptor = ScreenDescriptor { size_in_pixels: [self.config.width, self.config.height], pixels_per_point: self.window.scale_factor() as f32 };
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+
+        // Egui setup
+        self.egui_platform.update_time(self.start_time.elapsed().as_secs_f64());
+        self.egui_platform.begin_frame();
+
+        self.ui(&self.egui_platform.context());
+
+        let full_output = self.egui_platform.end_frame(Some(&self.window));
+        let paint_jobs = self.egui_platform.context().tessellate(full_output.shapes);
+        let textures_delta = full_output.textures_delta;
+
+        for texture in textures_delta.free.iter() {
+            self.egui_renderer.free_texture(texture);
+        }
+
+        for (id, image_delta) in textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, id, &image_delta);
+        }
+
+        self.egui_renderer.update_buffers(
+            &self.device, 
+            &self.queue, 
+            &mut encoder, 
+            &paint_jobs, 
+            &screen_descriptor,
+        );
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render pass"),
@@ -503,12 +554,30 @@ impl App {
             render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
         }
 
+        // Egui draw
+        self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+
         drop(render_pass);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
+    }
+
+    fn ui(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Hello world!").show(ctx, |ui| {
+            ui.label("holy guacamole");
+            if ui.button("Click me").clicked() {
+                println!("It works!");
+            }
+
+            let mut hsva = egui::epaint::Hsva::from_rgb(self.light_uniform.colour);
+
+            ui.color_edit_button_hsva(&mut hsva);
+
+            self.light_uniform.colour = hsva.to_rgb();
+        });
     }
 
     pub fn process_input(&mut self, event: &WindowEvent) -> bool {
