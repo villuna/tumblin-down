@@ -173,8 +173,6 @@ impl Model {
                     })
                 });
 
-            println!("Shininess: {}", mat.shininess);
-
             new_materials.push(Material {
                 name: mat.name,
                 diffuse_texture: texture,

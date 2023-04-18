@@ -1,6 +1,3 @@
-// For now...
-// #![allow(unused)]
-
 use std::{sync::{Arc, Mutex}, task::Context};
 
 use cfg_if::cfg_if;
@@ -249,7 +246,6 @@ pub async fn run() {
         // to integrate async into winit. Apparently someone tried but they gave up
         // 4 years ago.
         if !loaded {
-            println!("event loop running");
             let waker = futures::task::noop_waker();
             let mut cx = Context::from_waker(&waker);
             match (&mut load_result).as_mut().poll(&mut cx) {
