@@ -1,6 +1,7 @@
-use std::{sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant, f32::INFINITY};
 
 use anyhow::anyhow;
+use egui::RichText;
 use egui_wgpu::renderer::ScreenDescriptor;
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use kira::{
@@ -368,7 +369,8 @@ impl App {
             "collider pipeline",
             &collider_pipeline_layout,
             config.format,
-            None,
+            //None,
+            Some(texture::Texture::DEPTH_FORMAT),
             &[collider_desc()],
             &collider_shader,
             SAMPLE_COUNT,
@@ -600,6 +602,7 @@ impl App {
         // Egui draw
         self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
 
+        /*
         drop(render_pass);
 
         // Colliders: need a new render pass
@@ -615,8 +618,16 @@ impl App {
                     },
                 })
             ], 
-            depth_stencil_attachment: None,
-        });
+            //depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_texture.view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: true,
+                }),
+                stencil_ops: None,
+            }),
+        });*/
 
         render_pass.set_pipeline(&self.collider_pipeline);
 
@@ -646,15 +657,36 @@ impl App {
                 self.light_uniform.colour = hsva.to_rgb();
             });
 
+            ui.separator();
+
+            ui.label(RichText::new("Collider").strong());
+
             ui.horizontal(|ui| {
-                ui.label("Collider radius");
-                ui.add(egui::DragValue::new(&mut self.collider.shape_mut().as_capsule_mut().unwrap().radius).speed(0.01));
+                ui.label("Radius");
+                let radius = &mut self.collider.shape_mut().as_capsule_mut().unwrap().radius;
+                ui.add(egui::DragValue::new(radius).speed(0.01).clamp_range(0.0..=INFINITY));
             });
 
             ui.horizontal(|ui| {
-                ui.label("Collider bounds");
-                ui.add(egui::DragValue::new(&mut self.collider.shape_mut().as_capsule_mut().unwrap().segment.a.y).speed(0.01));
-                ui.add(egui::DragValue::new(&mut self.collider.shape_mut().as_capsule_mut().unwrap().segment.b.y).speed(0.01));
+                ui.label("Half-length");
+                let mut half_length = {
+                    let segment = self.collider.shape().as_capsule().unwrap().segment;
+                    (segment.b.y - segment.a.y) / 2.0
+                };
+
+                ui.add(egui::DragValue::new(&mut half_length).speed(0.01).clamp_range(0.0..=INFINITY));
+
+                self.collider.shape_mut().as_capsule_mut().unwrap().segment.b.y = half_length;
+                self.collider.shape_mut().as_capsule_mut().unwrap().segment.a.y = -half_length;
+
+                let mut position = self.collider.position().translation.y;
+
+                ui.add(egui::DragValue::new(&mut position).speed(0.01));
+
+                let mut new_pos = self.collider.position().clone();
+                new_pos.translation.y = position;
+
+                self.collider.set_position(new_pos);
             })
         });
     }

@@ -247,6 +247,9 @@ pub async fn run() {
         // resources. This is awful and possibly a good sign that someone needs
         // to integrate async into winit. Apparently someone tried but they gave up
         // 4 years ago.
+        //
+        // Update: 1 day after i got this problem, a crate called "async-winit" was
+        // announced. :shrug:
         if !loaded {
             let waker = futures::task::noop_waker();
             let mut cx = Context::from_waker(&waker);
