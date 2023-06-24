@@ -1,4 +1,6 @@
-use std::{sync::Arc, time::Instant, f32::INFINITY};
+use std::{sync::Arc, f32::INFINITY};
+
+use instant::Instant;
 
 use anyhow::anyhow;
 use egui::RichText;
@@ -8,7 +10,7 @@ use kira::{
     manager::{AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
 };
-use rapier3d::prelude::{Collider, ColliderBuilder};
+use rapier3d::{prelude::{Collider, ColliderBuilder}, na::Isometry3};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     TextureViewDescriptor, vertex_attr_array,
@@ -68,6 +70,9 @@ pub struct App {
     msaa_view: wgpu::TextureView,
     // The rest of the app
     // Since this is so simple there's not really much
+    //
+    // ...
+    // This was a comment from a simpler time
     pub rei_model: Option<model::Model>,
     pub light_model: Option<model::Model>,
     camera: Camera,
@@ -98,6 +103,7 @@ pub struct App {
     collider_index_buffer: wgpu::Buffer,
     collider_indices: u32,
     collider_pipeline: wgpu::RenderPipeline,
+    collider_instance_buffer: wgpu::Buffer,
 }
 
 fn create_render_pipeline(
@@ -314,10 +320,8 @@ impl App {
             ),
         });
 
-        log::info!("Creating depth texture...");
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth texture");
-        log::info!("Created!");
 
         let pipeline = create_render_pipeline(
             &device,
@@ -371,7 +375,7 @@ impl App {
             config.format,
             //None,
             Some(texture::Texture::DEPTH_FORMAT),
-            &[collider_desc()],
+            &[collider_desc(), model::InstanceRaw::desc()],
             &collider_shader,
             SAMPLE_COUNT,
         );
@@ -407,7 +411,8 @@ impl App {
             SAMPLE_COUNT
         );
 
-        let collider = ColliderBuilder::capsule_y(1.0, 1.0).build();
+        let collider = ColliderBuilder::capsule_y(0.7, 0.7)
+            .position(Isometry3::translation(0.0, 1.1, 0.0)).build();
 
         let vertices = collider.shape().as_capsule().unwrap().to_trimesh(20, 20).0
             .iter()
@@ -430,6 +435,14 @@ impl App {
             label: Some("Collider index buffer"),
             contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let collider_instance = model::Instance::from_rapier_position(collider.position());
+
+        let collider_instance_buffer = device.create_buffer_init(&BufferInitDescriptor { 
+            label: Some("Collider instance buffer"), 
+            contents: bytemuck::cast_slice(&[collider_instance.to_raw()]), 
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         Ok(Self {
@@ -467,6 +480,7 @@ impl App {
             collider_vertex_buffer,
             collider_index_buffer,
             collider_indices: indices.len() as u32,
+            collider_instance_buffer,
         })
     }
 
@@ -599,42 +613,16 @@ impl App {
             render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
         }
 
-        // Egui draw
-        self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
-
-        /*
-        drop(render_pass);
-
-        // Colliders: need a new render pass
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor { 
-            label: Some("collider render"), 
-            color_attachments: &[
-                Some(wgpu::RenderPassColorAttachment { 
-                    view: &self.msaa_view, 
-                    resolve_target: Some(&view), 
-                    ops: wgpu::Operations { 
-                        load: wgpu::LoadOp::Load, 
-                        store: true,
-                    },
-                })
-            ], 
-            //depth_stencil_attachment: None,
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.depth_texture.view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: true,
-                }),
-                stencil_ops: None,
-            }),
-        });*/
-
         render_pass.set_pipeline(&self.collider_pipeline);
 
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.collider_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.collider_instance_buffer.slice(..));
         render_pass.set_index_buffer(self.collider_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         render_pass.draw_indexed(0..self.collider_indices, 0, 0..1);
+
+        // Egui draw
+        self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
 
         drop(render_pass);
 
@@ -740,6 +728,8 @@ impl App {
         
         self.queue.write_buffer(&self.collider_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
         self.queue.write_buffer(&self.collider_index_buffer, 0, bytemuck::cast_slice(&indices));
+
+        self.queue.write_buffer(&self.collider_instance_buffer, 0, bytemuck::cast_slice(&[model::Instance::from_rapier_position(self.collider.position()).to_raw()]));
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {

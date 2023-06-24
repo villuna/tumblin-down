@@ -1,11 +1,13 @@
 use std::io::{BufReader, Cursor};
 
 use crate::{resources, texture};
-use cgmath::{Vector3, Quaternion, Matrix4};
+use cgmath::{Vector3, Quaternion, Matrix4, vec3};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     vertex_attr_array, VertexBufferLayout,
 };
+
+use rapier3d::na;
 
 pub trait Vertex {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a>;
@@ -25,6 +27,7 @@ pub struct InstanceRaw {
     matrix: [[f32; 4]; 4],
 }
 
+#[derive(Debug)]
 pub struct Instance {
     pub position: Vector3<f32>,
     pub rotation: Quaternion<f32>,
@@ -188,9 +191,19 @@ impl Model {
 }
 
 impl Instance {
-    fn to_raw(&self) -> InstanceRaw {
+    pub fn to_raw(&self) -> InstanceRaw {
         InstanceRaw { 
             matrix: (Matrix4::from_translation(self.position) * Matrix4::from(self.rotation)).into(),
+        }
+    }
+
+    pub fn from_rapier_position(position: &na::Isometry<f32, na::Unit<na::Quaternion<f32>>, 3>) -> Self {
+        let rotation = Quaternion::new(position.rotation.w, position.rotation.i, position.rotation.j, position.rotation.k);
+        let position = vec3(position.translation.x, position.translation.y, position.translation.z);
+
+        Self {
+            rotation,
+            position,
         }
     }
 }
@@ -210,17 +223,43 @@ impl Vertex for ModelVertex {
     }
 }
 
-impl InstanceRaw {
-    const ATTRS: &[wgpu::VertexAttribute] =
-        &vertex_attr_array![5 => Float32x4, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
-}
-
 impl Vertex for InstanceRaw {
-    fn desc<'a>() -> VertexBufferLayout<'a> {
-        VertexBufferLayout { 
-            array_stride: std::mem::size_of::<InstanceRaw>() as _,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: Self::ATTRS,
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        use std::mem;
+       
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            // We need to switch from using a step mode of Vertex to Instance
+            // This means that our shaders will only change to use the next
+            // instance when the shader starts processing a new instance
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials we'll
+                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5 not conflict with them later
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
+                // for each vec4. We'll have to reassemble the mat4 in
+                // the shader.
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 7,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 8,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
         }
     }
 }

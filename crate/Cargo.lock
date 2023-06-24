@@ -2852,6 +2852,7 @@ dependencies = [
  "futures",
  "getrandom",
  "image",
+ "instant",
  "kira",
  "log",
  "rapier3d",
