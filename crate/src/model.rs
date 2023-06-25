@@ -1,7 +1,7 @@
 use std::io::{BufReader, Cursor};
 
 use crate::{resources, texture};
-use cgmath::{Vector3, Quaternion, Matrix4, vec3};
+use cgmath::{vec3, Matrix4, Quaternion, Vector3};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     vertex_attr_array, VertexBufferLayout,
@@ -192,19 +192,28 @@ impl Model {
 
 impl Instance {
     pub fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw { 
-            matrix: (Matrix4::from_translation(self.position) * Matrix4::from(self.rotation)).into(),
+        InstanceRaw {
+            matrix: (Matrix4::from_translation(self.position) * Matrix4::from(self.rotation))
+                .into(),
         }
     }
 
-    pub fn from_rapier_position(position: &na::Isometry<f32, na::Unit<na::Quaternion<f32>>, 3>) -> Self {
-        let rotation = Quaternion::new(position.rotation.w, position.rotation.i, position.rotation.j, position.rotation.k);
-        let position = vec3(position.translation.x, position.translation.y, position.translation.z);
+    pub fn from_rapier_position(
+        position: &na::Isometry<f32, na::Unit<na::Quaternion<f32>>, 3>,
+    ) -> Self {
+        let rotation = Quaternion::new(
+            position.rotation.w,
+            position.rotation.i,
+            position.rotation.j,
+            position.rotation.k,
+        );
+        let position = vec3(
+            position.translation.x,
+            position.translation.y,
+            position.translation.z,
+        );
 
-        Self {
-            rotation,
-            position,
-        }
+        Self { rotation, position }
     }
 }
 
@@ -226,7 +235,7 @@ impl Vertex for ModelVertex {
 impl Vertex for InstanceRaw {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         use std::mem;
-       
+
         wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
             // We need to switch from using a step mode of Vertex to Instance

@@ -1,4 +1,4 @@
-use std::{sync::Arc, f32::INFINITY};
+use std::{f32::INFINITY, sync::Arc};
 
 use instant::Instant;
 
@@ -10,10 +10,10 @@ use kira::{
     manager::{AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
 };
-use rapier3d::{prelude::{ColliderBuilder}, na::Isometry3};
+use rapier3d::{na::Isometry3, prelude::ColliderBuilder};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    TextureViewDescriptor, vertex_attr_array,
+    vertex_attr_array, TextureViewDescriptor,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -27,8 +27,7 @@ use crate::light;
 use crate::{
     camera::CameraUniform,
     model::{self, ModelVertex, Vertex},
-    resources,
-    texture,
+    resources, texture,
 };
 
 const CLEAR_COLOUR: wgpu::Color = wgpu::Color {
@@ -67,19 +66,29 @@ struct DebugCollider {
 
 impl DebugCollider {
     fn new(device: &wgpu::Device, collider: rapier3d::prelude::Collider) -> Self {
-        let vertices = collider.shape().as_capsule().unwrap().to_trimesh(20, 20).0
+        let vertices = collider
+            .shape()
+            .as_capsule()
+            .unwrap()
+            .to_trimesh(20, 20)
+            .0
             .iter()
             .map(|p| [p.x, p.y, p.z])
             .collect::<Vec<_>>();
 
-        let indices = collider.shape().as_capsule().unwrap().to_trimesh(20, 20).1
+        let indices = collider
+            .shape()
+            .as_capsule()
+            .unwrap()
+            .to_trimesh(20, 20)
+            .1
             .iter()
             .flatten()
             .copied()
             .collect::<Vec<u32>>();
 
-        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor { 
-            label: Some("collider vertex buffer"), 
+        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("collider vertex buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
@@ -92,9 +101,9 @@ impl DebugCollider {
 
         let instance = model::Instance::from_rapier_position(collider.position());
 
-        let instance_buffer = device.create_buffer_init(&BufferInitDescriptor { 
-            label: Some("Collider instance buffer"), 
-            contents: bytemuck::cast_slice(&[instance.to_raw()]), 
+        let instance_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Collider instance buffer"),
+            contents: bytemuck::cast_slice(&[instance.to_raw()]),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -108,7 +117,8 @@ impl DebugCollider {
     }
 
     fn draw<'r, 's>(&'s self, render_pass: &mut wgpu::RenderPass<'r>)
-    where 's: 'r
+    where
+        's: 'r,
     {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
@@ -117,20 +127,39 @@ impl DebugCollider {
     }
 
     fn update(&self, queue: &wgpu::Queue) {
-        let vertices = self.collider.shape().as_capsule().unwrap().to_trimesh(20, 20).0
+        let vertices = self
+            .collider
+            .shape()
+            .as_capsule()
+            .unwrap()
+            .to_trimesh(20, 20)
+            .0
             .iter()
             .map(|p| [p.x, p.y, p.z])
             .collect::<Vec<_>>();
 
-        let indices = self.collider.shape().as_capsule().unwrap().to_trimesh(20, 20).1
+        let indices = self
+            .collider
+            .shape()
+            .as_capsule()
+            .unwrap()
+            .to_trimesh(20, 20)
+            .1
             .iter()
             .flatten()
             .copied()
             .collect::<Vec<u32>>();
-        
+
         queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
         queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&indices));
-        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&[model::Instance::from_rapier_position(self.collider.position()).to_raw()]));
+        queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&[model::Instance::from_rapier_position(
+                self.collider.position(),
+            )
+            .to_raw()]),
+        );
     }
 }
 pub struct App {
@@ -161,12 +190,12 @@ pub struct App {
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
     light_pipeline: wgpu::RenderPipeline,
-    
+
     // Audio
     pub song: Option<StaticSoundData>,
     song_handle: Option<StaticSoundHandle>,
     audio_manager: Option<AudioManager>,
-    
+
     // Egui stuff
     pub egui_platform: Platform,
     egui_renderer: egui_wgpu::Renderer,
@@ -297,7 +326,12 @@ impl App {
 
         surface.configure(&device, &config);
 
-        let camera = Camera::new(&device, (0.0, 2.0, 6.0).into(), config.width as f32 / config.height as f32);
+        let camera = Camera::new(
+            &device,
+            &queue,
+            (0.0, 2.0, 6.0).into(),
+            config.width as f32 / config.height as f32,
+        );
 
         let light_uniform = light::LightUniform::new([2.0, 3.0, 2.0], [0.96, 0.68, 1.0]);
 
@@ -366,16 +400,20 @@ impl App {
             SAMPLE_COUNT,
         );
 
-        let light_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { 
-            label: Some("Light shader"), 
-            source: wgpu::ShaderSource::Wgsl(resources::load_string("shaders/light_shader.wgsl").await?.into()),
+        let light_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Light shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                resources::load_string("shaders/light_shader.wgsl")
+                    .await?
+                    .into(),
+            ),
         });
 
         let light_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light pipeline layout"),
                 bind_group_layouts: &[camera_bind_group_layout, &light_bind_group_layout],
-                push_constant_ranges: &[], 
+                push_constant_ranges: &[],
             });
 
         let light_pipeline = create_render_pipeline(
@@ -391,14 +429,19 @@ impl App {
 
         let collider_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("collider shader"),
-            source: wgpu::ShaderSource::Wgsl(resources::load_string("shaders/collider_debug_shader.wgsl").await?.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                resources::load_string("shaders/collider_debug_shader.wgsl")
+                    .await?
+                    .into(),
+            ),
         });
 
-        let collider_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Collider pipeline layout"),
-            bind_group_layouts: &[camera_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let collider_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Collider pipeline layout"),
+                bind_group_layouts: &[camera_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         let collider_pipeline = create_render_pipeline(
             &device,
@@ -440,11 +483,12 @@ impl App {
             &device,
             config.format,
             Some(texture::Texture::DEPTH_FORMAT),
-            SAMPLE_COUNT
+            SAMPLE_COUNT,
         );
 
         let collider = ColliderBuilder::capsule_y(0.7, 0.7)
-            .position(Isometry3::translation(0.0, 1.1, 0.0)).build();
+            .position(Isometry3::translation(0.0, 1.1, 0.0))
+            .build();
 
         let collider = DebugCollider::new(&device, collider);
 
@@ -531,7 +575,10 @@ impl App {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&Default::default());
 
-        let screen_descriptor = ScreenDescriptor { size_in_pixels: [self.config.width, self.config.height], pixels_per_point: self.window.scale_factor() as f32 };
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
 
         let mut encoder = self
             .device
@@ -540,7 +587,8 @@ impl App {
             });
 
         // Egui setup
-        self.egui_platform.update_time(self.start_time.elapsed().as_secs_f64());
+        self.egui_platform
+            .update_time(self.start_time.elapsed().as_secs_f64());
         self.egui_platform.begin_frame();
 
         self.ui(&self.egui_platform.context());
@@ -554,14 +602,15 @@ impl App {
         }
 
         for (id, image_delta) in textures_delta.set {
-            self.egui_renderer.update_texture(&self.device, &self.queue, id, &image_delta);
+            self.egui_renderer
+                .update_texture(&self.device, &self.queue, id, &image_delta);
         }
 
         self.egui_renderer.update_buffers(
-            &self.device, 
-            &self.queue, 
-            &mut encoder, 
-            &paint_jobs, 
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &paint_jobs,
             &screen_descriptor,
         );
 
@@ -591,7 +640,10 @@ impl App {
         render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
         render_pass.set_bind_group(1, &self.light_bind_group, &[]);
         render_pass.set_vertex_buffer(0, light_model.meshes[0].vertex_buffer.slice(..));
-        render_pass.set_index_buffer(light_model.meshes[0].index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.set_index_buffer(
+            light_model.meshes[0].index_buffer.slice(..),
+            wgpu::IndexFormat::Uint32,
+        );
         render_pass.draw_indexed(0..light_model.meshes[0].num_indices as _, 0, 0..1);
 
         // Rei
@@ -616,7 +668,8 @@ impl App {
         self.collider.draw(&mut render_pass);
 
         // Egui draw
-        self.egui_renderer.render(&mut render_pass, &paint_jobs, &screen_descriptor);
+        self.egui_renderer
+            .render(&mut render_pass, &paint_jobs, &screen_descriptor);
 
         drop(render_pass);
 
@@ -751,7 +804,12 @@ impl App {
         if self.audio_manager.is_none() {
             self.audio_manager = AudioManager::new(AudioManagerSettings::default()).ok();
         }
-        self.song_handle = self.audio_manager.as_mut().unwrap().play(self.song.as_ref().unwrap().clone()).ok();
+        self.song_handle = self
+            .audio_manager
+            .as_mut()
+            .unwrap()
+            .play(self.song.as_ref().unwrap().clone())
+            .ok();
     }
 
     pub fn song_handle_mut(&mut self) -> Option<&mut StaticSoundHandle> {

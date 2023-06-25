@@ -61,13 +61,18 @@ impl Camera {
         })
     }
 
-    pub fn new(device: &wgpu::Device, position: Point3<f32>, aspect: f32) -> Self {
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor { 
-            label: Some("Camera uniform buffer"), 
-            size: std::mem::size_of::<CameraUniform>() as _, 
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM, 
-            mapped_at_creation: false, 
-        }); 
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        position: Point3<f32>,
+        aspect: f32,
+    ) -> Self {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Camera uniform buffer"),
+            size: std::mem::size_of::<CameraUniform>() as _,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Camera bind group"),
@@ -78,7 +83,7 @@ impl Camera {
             }],
         });
 
-        Self {
+        let camera = Self {
             eye: position,
             h_angle: 0.0,
             v_angle: 0.0,
@@ -89,7 +94,15 @@ impl Camera {
             zfar: 100.0,
             buffer,
             bind_group,
-        }
+        };
+
+        queue.write_buffer(
+            &camera.buffer,
+            0,
+            bytemuck::cast_slice(&[camera.to_uniform()]),
+        );
+
+        camera
     }
 
     pub fn build_camera_matrix(&self) -> Matrix4<f32> {
@@ -170,11 +183,7 @@ impl Camera {
         let did_update = vrot != 0.0 || hrot != 0.0 || hdir != 0.0 || vdir != 0.0 || fdir != 0.0;
 
         if did_update {
-            queue.write_buffer(
-                &self.buffer,
-                0,
-                bytemuck::cast_slice(&[self.to_uniform()]),
-            );
+            queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.to_uniform()]));
         }
     }
 }

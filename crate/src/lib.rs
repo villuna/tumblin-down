@@ -1,9 +1,12 @@
-use std::{sync::{Arc, Mutex}, task::Context};
+use std::{
+    sync::{Arc, Mutex},
+    task::Context,
+};
 
 use cfg_if::cfg_if;
-use std::future::Future;
 use kira::sound::static_sound::{PlaybackState, StaticSoundData, StaticSoundSettings};
 use resources::load_bytes;
+use std::future::Future;
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -40,11 +43,14 @@ async fn load_resources(app: Arc<Mutex<App>>) -> anyhow::Result<()> {
         device.as_ref(),
         queue.as_ref(),
         "assets/rei/rei.obj",
-        Some(&texture::Texture::texture_bind_group_layout(device.as_ref())),
+        Some(&texture::Texture::texture_bind_group_layout(
+            device.as_ref(),
+        )),
     )
     .await?;
 
-    let light_model = model::Model::load(device.as_ref(), queue.as_ref(), "assets/ike.obj", None).await?;
+    let light_model =
+        model::Model::load(device.as_ref(), queue.as_ref(), "assets/ike.obj", None).await?;
 
     let song = StaticSoundData::from_cursor(
         std::io::Cursor::new(load_bytes("assets/komm-susser-tod.ogg").await?),
@@ -176,8 +182,14 @@ pub async fn run() {
             } else {
                 log::info!("Playing music");
                 app.play_music();
-                app.song_handle_mut().unwrap().pause(Default::default()).unwrap();
-                app.song_handle_mut().unwrap().resume(Default::default()).unwrap();
+                app.song_handle_mut()
+                    .unwrap()
+                    .pause(Default::default())
+                    .unwrap();
+                app.song_handle_mut()
+                    .unwrap()
+                    .resume(Default::default())
+                    .unwrap();
             }
         }
 
@@ -257,9 +269,9 @@ pub async fn run() {
                 std::task::Poll::Ready(result) => {
                     result.unwrap();
                     loaded = true;
-                },
+                }
 
-                std::task::Poll::Pending => {},
+                std::task::Poll::Pending => {}
             }
         }
     });
