@@ -1,11 +1,10 @@
+use std::sync::OnceLock;
+
 use image::GenericImageView;
 
 use crate::resources::load_bytes;
 
-// This is considered evil
-// But I don't want to rebuild my bind group layout each time
-// This is safe, I'm just using the singleton pattern.
-static mut BIND_GROUP_LAYOUT: Option<wgpu::BindGroupLayout> = None;
+static TEXTURE_BIND_GROUP_LAYOUT: OnceLock<wgpu::BindGroupLayout> = OnceLock::new();
 
 pub struct Texture {
     pub texture: wgpu::Texture,
@@ -17,43 +16,33 @@ impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
     pub fn texture_bind_group_layout(device: &wgpu::Device) -> &wgpu::BindGroupLayout {
-        unsafe {
-            match &BIND_GROUP_LAYOUT {
-                Some(bgl) => bgl,
-                None => {
-                    let bind_group_layout =
-                        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                            label: Some("Texture bind group layout descriptor"),
-                            entries: &[
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 0,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Texture {
-                                        sample_type: wgpu::TextureSampleType::Float {
-                                            filterable: true,
-                                        },
-                                        view_dimension: wgpu::TextureViewDimension::D2,
-                                        multisampled: false,
-                                    },
-                                    count: None,
-                                },
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 1,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Sampler(
-                                        wgpu::SamplerBindingType::Filtering,
-                                    ),
-                                    count: None,
-                                },
-                            ],
-                        });
-
-                    BIND_GROUP_LAYOUT = Some(bind_group_layout);
-
-                    BIND_GROUP_LAYOUT.as_ref().unwrap()
-                }
-            }
-        }
+        TEXTURE_BIND_GROUP_LAYOUT.get_or_init(|| {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Texture bind group layout descriptor"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float {
+                                filterable: true,
+                            },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(
+                            wgpu::SamplerBindingType::Filtering,
+                        ),
+                        count: None,
+                    },
+                ],
+            })
+        })
     }
 
     pub fn create_depth_texture(
