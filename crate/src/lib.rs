@@ -16,6 +16,7 @@ use winit::{
 
 mod app;
 mod camera;
+mod debug_collider;
 mod input;
 mod light;
 mod model;
