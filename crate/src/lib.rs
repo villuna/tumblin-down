@@ -4,7 +4,7 @@ use std::{
 };
 
 use cfg_if::cfg_if;
-use kira::sound::static_sound::{PlaybackState, StaticSoundData, StaticSoundSettings};
+use kira::sound::{PlaybackState, static_sound::{StaticSoundData, StaticSoundSettings}};
 use resources::load_bytes;
 use std::future::Future;
 use winit::{

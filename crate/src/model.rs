@@ -147,7 +147,7 @@ impl Model {
         let mut new_materials = Vec::new();
 
         for mat in materials?.into_iter() {
-            let diffuse_filename = format_path(&mat.diffuse_texture);
+            let diffuse_filename = format_path(mat.diffuse_texture.as_ref().unwrap());
             let texture = texture::Texture::load_texture(&device, &queue, &diffuse_filename)
                 .await
                 .ok();
