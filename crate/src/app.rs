@@ -1,16 +1,16 @@
-use std::{f32::INFINITY, sync::Arc};
+use std::{sync::Arc, f32::{INFINITY, consts::PI}};
 
+use egui::RichText;
 use instant::Instant;
 
 use anyhow::anyhow;
-use egui::RichText;
 use egui_wgpu::renderer::ScreenDescriptor;
 use egui_winit_platform::{Platform, PlatformDescriptor};
 use kira::{
     manager::{AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
 };
-use rapier3d::{na::Isometry3, prelude::ColliderBuilder};
+use rapier3d::{na::{Isometry3, Vector3, Translation3, UnitQuaternion}, prelude::{ColliderBuilder, AngVector, SharedShape}};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     vertex_attr_array, TextureViewDescriptor,
@@ -25,7 +25,6 @@ use crate::camera::Camera;
 use crate::input;
 use crate::light;
 use crate::{
-    camera::CameraUniform,
     model::{self, ModelVertex, Vertex},
     resources, texture,
 };
@@ -45,12 +44,26 @@ pub enum State {
 
 pub const SAMPLE_COUNT: u32 = 4;
 
-fn collider_desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-    wgpu::VertexBufferLayout {
-        array_stride: std::mem::size_of::<[f32; 3]>() as _,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &vertex_attr_array![0 => Float32x3],
-    }
+fn rei_collider() -> rapier3d::prelude::Collider {
+    /*
+    let body_collider = ColliderBuilder::capsule_y(0.7, 0.65)
+        .translation(Vector3::new(0.0, 1.1, 0.0))
+        .build();
+
+    let head_collider = ColliderBuilder::round_cylinder(0.4, 0.95, 0.5)
+        .rotation(AngVector::new(3.14/2.0, 0.0, 0.0))
+        .translation(Vector3::new(0.0, 3.35, -0.1))
+        .build();
+    */
+
+    let head_shape = SharedShape::round_cylinder(0.4, 0.95, 0.5);
+    let body_shape = SharedShape::capsule_y(0.7, 0.65);
+
+    let head_trans = Isometry3::from_parts(Translation3::new(0.0, 1.1, 0.0), UnitQuaternion::new(Vector3::x() * PI / 2.0));
+    let body_trans = Isometry3::translation(0.0, 3.35, -0.1);
+
+    ColliderBuilder::compound(vec![(head_trans, head_shape), (body_trans, body_shape)])
+        .build()
 }
 
 /// Contains a [rapier3d] collider, along with various things needed
@@ -58,35 +71,94 @@ fn collider_desc<'a>() -> wgpu::VertexBufferLayout<'a> {
 struct DebugCollider {
     collider: rapier3d::prelude::Collider,
     // Stuff for rendering
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    indices: u32,
+    collider_vertex_buffer: wgpu::Buffer,
+    collider_index_buffer: wgpu::Buffer,
+    collider_indices: u32,
+    outline_vertex_buffer: wgpu::Buffer,
+    outline_index_buffer: wgpu::Buffer,
+    outline_indices: u32,
     instance_buffer: wgpu::Buffer,
 }
 
 impl DebugCollider {
-    fn new(device: &wgpu::Device, collider: rapier3d::prelude::Collider) -> Self {
-        let vertices = collider
+    fn new_capsule(device: &wgpu::Device, collider: rapier3d::prelude::Collider) -> Self {
+        let (vertices, indices) = collider
             .shape()
             .as_capsule()
             .unwrap()
-            .to_trimesh(20, 20)
-            .0
+            .to_trimesh(20, 20);
+
+        let vertices = vertices
             .iter()
             .map(|p| [p.x, p.y, p.z])
             .collect::<Vec<_>>();
 
-        let indices = collider
-            .shape()
-            .as_capsule()
-            .unwrap()
-            .to_trimesh(20, 20)
-            .1
+        let indices = indices
             .iter()
             .flatten()
             .copied()
             .collect::<Vec<u32>>();
 
+        let (outline_vertices, outline_indices) = collider
+            .shape()
+            .as_capsule()
+            .unwrap()
+            .to_outline(20);
+
+        let outline_vertices = outline_vertices
+            .iter()
+            .map(|p| [p.x, p.y, p.z])
+            .collect::<Vec<_>>();
+
+        let outline_indices = outline_indices
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<u32>>();
+
+        Self::new(device, collider, vertices, indices, outline_vertices, outline_indices)
+    }
+
+    fn new_round_cylinder(device: &wgpu::Device, collider: rapier3d::prelude::Collider) -> Self {
+        let (vertices, indices) = collider
+            .shape()
+            .as_round_cylinder()
+            .unwrap()
+            .inner_shape
+            .to_trimesh(20);
+
+        let vertices = vertices
+            .iter()
+            .map(|p| [p.x, p.y, p.z])
+            .collect::<Vec<_>>();
+
+        let indices = indices
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<u32>>();
+
+        let (outline_vertices, outline_indices) = collider
+            .shape()
+            .as_round_cylinder()
+            .unwrap()
+            .to_outline(20, 20);
+
+        let outline_vertices = outline_vertices
+            .iter()
+            .map(|p| [p.x, p.y, p.z])
+            .collect::<Vec<_>>();
+
+        let outline_indices = outline_indices
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<u32>>();
+
+        Self::new(device, collider, vertices, indices, outline_vertices, outline_indices)
+    }
+
+    fn new(device: &wgpu::Device, collider: rapier3d::prelude::Collider, vertices: Vec<[f32; 3]>, indices: Vec<u32>, outline_vertices: Vec<[f32; 3]>, outline_indices: Vec<u32>) -> Self {
         let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("collider vertex buffer"),
             contents: bytemuck::cast_slice(&vertices),
@@ -96,6 +168,18 @@ impl DebugCollider {
         let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Collider index buffer"),
             contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let outline_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("collider vertex buffer"),
+            contents: bytemuck::cast_slice(&outline_vertices),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let outline_index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Collider index buffer"),
+            contents: bytemuck::cast_slice(&outline_indices),
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -109,9 +193,12 @@ impl DebugCollider {
 
         Self {
             collider,
-            vertex_buffer,
-            index_buffer,
-            indices: indices.len() as _,
+            collider_vertex_buffer: vertex_buffer,
+            collider_index_buffer: index_buffer,
+            collider_indices: indices.len() as _,
+            outline_vertex_buffer,
+            outline_index_buffer,
+            outline_indices: outline_indices.len() as _,
             instance_buffer,
         }
     }
@@ -120,38 +207,61 @@ impl DebugCollider {
     where
         's: 'r,
     {
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, self.collider_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..self.indices, 0, 0..1);
+        render_pass.set_index_buffer(self.collider_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..self.collider_indices, 0, 0..1);
     }
 
-    fn update(&self, queue: &wgpu::Queue) {
-        let vertices = self
-            .collider
+    fn draw_outline<'r, 's>(&'s self, render_pass: &mut wgpu::RenderPass<'r>)
+    where
+        's: 'r,
+    {
+        render_pass.set_vertex_buffer(0, self.outline_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        render_pass.set_index_buffer(self.outline_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..self.outline_indices, 0, 0..1);
+    }
+
+    fn update_capsule(&self, queue: &wgpu::Queue) {
+        let (vertices, indices) = self.collider
             .shape()
             .as_capsule()
             .unwrap()
-            .to_trimesh(20, 20)
-            .0
+            .to_trimesh(20, 20);
+
+        let vertices = vertices
             .iter()
             .map(|p| [p.x, p.y, p.z])
             .collect::<Vec<_>>();
 
-        let indices = self
-            .collider
-            .shape()
-            .as_capsule()
-            .unwrap()
-            .to_trimesh(20, 20)
-            .1
+        let indices = indices
             .iter()
             .flatten()
             .copied()
             .collect::<Vec<u32>>();
 
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
-        queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&indices));
+        let (outline_vertices, outline_indices) = self.collider
+            .shape()
+            .as_capsule()
+            .unwrap()
+            .to_outline(20);
+
+        let outline_vertices = outline_vertices
+            .iter()
+            .map(|p| [p.x, p.y, p.z])
+            .collect::<Vec<_>>();
+
+        let outline_indices = outline_indices
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<u32>>();
+
+        queue.write_buffer(&self.collider_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        queue.write_buffer(&self.collider_index_buffer, 0, bytemuck::cast_slice(&indices));
+        queue.write_buffer(&self.outline_vertex_buffer, 0, bytemuck::cast_slice(&outline_vertices));
+        queue.write_buffer(&self.outline_index_buffer, 0, bytemuck::cast_slice(&outline_indices));
         queue.write_buffer(
             &self.instance_buffer,
             0,
@@ -160,6 +270,76 @@ impl DebugCollider {
             )
             .to_raw()]),
         );
+    }
+
+    fn update_round_cylinder(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let (vertices, indices) = self
+            .collider
+            .shape()
+            .as_round_cylinder()
+            .unwrap()
+            .inner_shape
+            .to_trimesh(20);
+
+        let vertices = vertices
+            .iter()
+            .map(|p| [p.x, p.y, p.z])
+            .collect::<Vec<_>>();
+
+        let indices = indices
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<u32>>();
+
+        let (outline_vertices, outline_indices) = self.collider
+            .shape()
+            .as_round_cylinder()
+            .unwrap()
+            .to_outline(20, 20);
+
+        let outline_vertices = outline_vertices
+            .iter()
+            .map(|p| [p.x, p.y, p.z])
+            .collect::<Vec<_>>();
+
+        let outline_indices = outline_indices
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<u32>>();
+
+        queue.write_buffer(&self.collider_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        queue.write_buffer(&self.collider_index_buffer, 0, bytemuck::cast_slice(&indices));
+
+        self.outline_vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("collider vertex buffer"),
+            contents: bytemuck::cast_slice(&outline_vertices),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        self.outline_index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Collider index buffer"),
+            contents: bytemuck::cast_slice(&outline_indices),
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&[model::Instance::from_rapier_position(
+                self.collider.position(),
+            )
+            .to_raw()]),
+        );
+    }
+
+    fn vertex_desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<[f32; 3]>() as _,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &vertex_attr_array![0 => Float32x3],
+        }
     }
 }
 pub struct App {
@@ -202,8 +382,11 @@ pub struct App {
     start_time: Instant,
 
     // Colliders (will remove this eventually)
-    collider: DebugCollider,
+    body_collider: DebugCollider,
+    head_collider: DebugCollider,
     collider_pipeline: wgpu::RenderPipeline,
+    outline_pipeline: wgpu::RenderPipeline,
+    show_colliders: bool,
 }
 
 fn create_render_pipeline(
@@ -450,10 +633,69 @@ impl App {
             config.format,
             //None,
             Some(texture::Texture::DEPTH_FORMAT),
-            &[collider_desc(), model::InstanceRaw::desc()],
+            &[DebugCollider::vertex_desc(), model::InstanceRaw::desc()],
             &collider_shader,
             SAMPLE_COUNT,
         );
+
+        let outline_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("outline shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                resources::load_string("shaders/collider_outline_shader.wgsl")
+                    .await?
+                    .into(),
+            ),
+        });
+
+        let outline_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("outline pipeline layout"),
+                bind_group_layouts: &[camera_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let outline_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Outline pipeline"),
+            layout: Some(&outline_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &outline_shader,
+                entry_point: "vs_main",
+                buffers: &[DebugCollider::vertex_desc(), model::InstanceRaw::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &outline_shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: SAMPLE_COUNT,
+                ..Default::default()
+            },
+            multiview: None,
+        });
 
         let msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("msaa texture"),
@@ -486,11 +728,17 @@ impl App {
             SAMPLE_COUNT,
         );
 
-        let collider = ColliderBuilder::capsule_y(0.7, 0.7)
-            .position(Isometry3::translation(0.0, 1.1, 0.0))
+        let body_collider = ColliderBuilder::capsule_y(0.7, 0.65)
+            .translation(Vector3::new(0.0, 1.1, 0.0))
             .build();
 
-        let collider = DebugCollider::new(&device, collider);
+        let head_collider = ColliderBuilder::round_cylinder(0.4, 0.95, 0.5)
+            .rotation(AngVector::new(3.14/2.0, 0.0, 0.0))
+            .translation(Vector3::new(0.0, 3.35, -0.1))
+            .build();
+
+        let body_collider = DebugCollider::new_capsule(&device, body_collider);
+        let head_collider = DebugCollider::new_round_cylinder(&device, head_collider);
 
         Ok(Self {
             surface,
@@ -520,8 +768,11 @@ impl App {
             egui_platform,
             egui_renderer,
             start_time: Instant::now(),
-            collider,
+            body_collider,
+            head_collider,
             collider_pipeline,
+            outline_pipeline,
+            show_colliders: false,
         })
     }
 
@@ -662,10 +913,16 @@ impl App {
             render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
         }
 
-        render_pass.set_pipeline(&self.collider_pipeline);
+        if self.show_colliders {
+            render_pass.set_pipeline(&self.outline_pipeline);
+            self.body_collider.draw_outline(&mut render_pass);
+            self.head_collider.draw_outline(&mut render_pass);
 
-        render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
-        self.collider.draw(&mut render_pass);
+            render_pass.set_pipeline(&self.collider_pipeline);
+
+            self.body_collider.draw(&mut render_pass);
+            self.head_collider.draw(&mut render_pass);
+        }
 
         // Egui draw
         self.egui_renderer
@@ -692,40 +949,7 @@ impl App {
                 self.light_uniform.colour = hsva.to_rgb();
             });
 
-            // Collider settings
-            /*
-            ui.separator();
-
-            ui.label(RichText::new("Collider").strong());
-
-            ui.horizontal(|ui| {
-                ui.label("Radius");
-                let radius = &mut self.collider.collider.shape_mut().as_capsule_mut().unwrap().radius;
-                ui.add(egui::DragValue::new(radius).speed(0.01).clamp_range(0.0..=INFINITY));
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Half-length");
-                let mut half_length = {
-                    let segment = self.collider.collider.shape().as_capsule().unwrap().segment;
-                    (segment.b.y - segment.a.y) / 2.0
-                };
-
-                ui.add(egui::DragValue::new(&mut half_length).speed(0.01).clamp_range(0.0..=INFINITY));
-
-                self.collider.collider.shape_mut().as_capsule_mut().unwrap().segment.b.y = half_length;
-                self.collider.collider.shape_mut().as_capsule_mut().unwrap().segment.a.y = -half_length;
-
-                let mut position = self.collider.collider.position().translation.y;
-
-                ui.add(egui::DragValue::new(&mut position).speed(0.01));
-
-                let mut new_pos = self.collider.collider.position().clone();
-                new_pos.translation.y = position;
-
-                self.collider.collider.set_position(new_pos);
-            })
-            */
+            ui.checkbox(&mut self.show_colliders, "Show colliders");
         });
     }
 
@@ -759,7 +983,8 @@ impl App {
 
         self.camera.update(&self.queue, &self.keyboard);
 
-        self.collider.update(&self.queue);
+        self.body_collider.update_capsule(&self.queue);
+        self.head_collider.update_round_cylinder(&self.device, &self.queue);
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
