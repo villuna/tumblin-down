@@ -4,6 +4,7 @@ use std::{
 };
 
 use cfg_if::cfg_if;
+use instant::Instant;
 use kira::sound::{
     static_sound::{StaticSoundData, StaticSoundSettings},
     PlaybackState,
@@ -175,6 +176,8 @@ pub async fn run() {
         load_resources(app)
     });
 
+    let mut frame_time = Instant::now();
+
     event_loop.run(move |event, _, control_flow| {
         let mut app = app.lock().unwrap();
 
@@ -231,7 +234,10 @@ pub async fn run() {
             }
 
             Event::RedrawRequested(window_id) if window_id == app.window().id() => {
-                app.update();
+                let delta_time = frame_time.elapsed().as_secs_f32();
+                frame_time = Instant::now();
+
+                app.update(delta_time);
 
                 match app.render() {
                     Ok(_) => {}

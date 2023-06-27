@@ -1,4 +1,4 @@
-use std::{f32::consts::PI, sync::Arc};
+use std::sync::Arc;
 
 use instant::Instant;
 
@@ -8,10 +8,6 @@ use egui_winit_platform::{Platform, PlatformDescriptor};
 use kira::{
     manager::{AudioManager, AudioManagerSettings},
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
-};
-use rapier3d::{
-    na::{Isometry3, Translation3, UnitQuaternion, Vector3},
-    prelude::{AngVector, ColliderBuilder, SharedShape},
 };
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -23,9 +19,9 @@ use winit::{
     window::Window,
 };
 
-use crate::input;
+use crate::camera::Camera;
 use crate::light;
-use crate::{camera::Camera, debug_collider::DebugCollider};
+use crate::{input, model::InstanceRaw, physics::PhysicsSimulation};
 use crate::{
     model::{self, ModelVertex, Vertex},
     resources, texture,
@@ -85,12 +81,8 @@ pub struct App {
     egui_renderer: egui_wgpu::Renderer,
     start_time: Instant,
 
-    // Colliders (will remove this eventually)
-    body_collider: DebugCollider,
-    head_collider: DebugCollider,
-    collider_pipeline: wgpu::RenderPipeline,
-    outline_pipeline: wgpu::RenderPipeline,
-    show_colliders: bool,
+    physics: PhysicsSimulation,
+    rei_instance_buffer: wgpu::Buffer,
 }
 
 fn create_render_pipeline(
@@ -282,7 +274,7 @@ impl App {
             &pipeline_layout,
             config.format,
             Some(texture::Texture::DEPTH_FORMAT),
-            &[ModelVertex::desc()],
+            &[ModelVertex::desc(), InstanceRaw::desc()],
             &shader,
             SAMPLE_COUNT,
         );
@@ -313,93 +305,6 @@ impl App {
             &light_shader,
             SAMPLE_COUNT,
         );
-
-        let collider_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("collider shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                resources::load_string("shaders/collider_debug_shader.wgsl")
-                    .await?
-                    .into(),
-            ),
-        });
-
-        let collider_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Collider pipeline layout"),
-                bind_group_layouts: &[camera_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let collider_pipeline = create_render_pipeline(
-            &device,
-            "collider pipeline",
-            &collider_pipeline_layout,
-            config.format,
-            //None,
-            Some(texture::Texture::DEPTH_FORMAT),
-            &[DebugCollider::vertex_desc(), model::InstanceRaw::desc()],
-            &collider_shader,
-            SAMPLE_COUNT,
-        );
-
-        let outline_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("outline shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                resources::load_string("shaders/collider_outline_shader.wgsl")
-                    .await?
-                    .into(),
-            ),
-        });
-
-        let outline_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("outline pipeline layout"),
-                bind_group_layouts: &[camera_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let outline_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Outline pipeline"),
-            layout: Some(&outline_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &outline_shader,
-                entry_point: "vs_main",
-                buffers: &[DebugCollider::vertex_desc(), model::InstanceRaw::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &outline_shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: texture::Texture::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: SAMPLE_COUNT,
-                ..Default::default()
-            },
-            multiview: None,
-        });
 
         let msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("msaa texture"),
@@ -432,17 +337,13 @@ impl App {
             SAMPLE_COUNT,
         );
 
-        let body_collider = ColliderBuilder::capsule_y(0.7, 0.65)
-            .translation(Vector3::new(0.0, 1.1, 0.0))
-            .build();
+        let physics = PhysicsSimulation::new();
 
-        let head_collider = ColliderBuilder::round_cylinder(0.4, 0.95, 0.5)
-            .rotation(AngVector::new(3.14 / 2.0, 0.0, 0.0))
-            .translation(Vector3::new(0.0, 3.35, -0.1))
-            .build();
-
-        let body_collider = DebugCollider::new_capsule(&device, body_collider);
-        let head_collider = DebugCollider::new_round_cylinder(&device, head_collider);
+        let rei_instance_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Rei instance buffer"),
+            contents: bytemuck::cast_slice(&physics.instances()),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
 
         Ok(Self {
             surface,
@@ -472,11 +373,8 @@ impl App {
             egui_platform,
             egui_renderer,
             start_time: Instant::now(),
-            body_collider,
-            head_collider,
-            collider_pipeline,
-            outline_pipeline,
-            show_colliders: false,
+            physics,
+            rei_instance_buffer,
         })
     }
 
@@ -605,6 +503,7 @@ impl App {
         render_pass.set_pipeline(&self.pipeline);
         //render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         render_pass.set_bind_group(2, &self.light_bind_group, &[]);
+        render_pass.set_vertex_buffer(1, self.rei_instance_buffer.slice(..));
 
         let rei_model = self.rei_model.as_ref().unwrap();
 
@@ -615,17 +514,6 @@ impl App {
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
-        }
-
-        if self.show_colliders {
-            render_pass.set_pipeline(&self.outline_pipeline);
-            self.body_collider.draw_outline(&mut render_pass);
-            self.head_collider.draw_outline(&mut render_pass);
-
-            render_pass.set_pipeline(&self.collider_pipeline);
-
-            self.body_collider.draw(&mut render_pass);
-            self.head_collider.draw(&mut render_pass);
         }
 
         // Egui draw
@@ -653,7 +541,9 @@ impl App {
                 self.light_uniform.colour = hsva.to_rgb();
             });
 
-            ui.checkbox(&mut self.show_colliders, "Show colliders");
+            if ui.button("Reset").clicked() {
+                self.physics = PhysicsSimulation::new();
+            }
         });
     }
 
@@ -677,19 +567,24 @@ impl App {
         }
     }
 
-    pub fn update(&mut self) {
-        self.light_uniform.update();
-        self.queue.write_buffer(
-            &self.light_buffer,
-            0,
-            bytemuck::cast_slice(&[self.light_uniform]),
-        );
+    pub fn update(&mut self, delta_time: f32) {
+        if self.state == State::Playing {
+            self.light_uniform.update();
+            self.queue.write_buffer(
+                &self.light_buffer,
+                0,
+                bytemuck::cast_slice(&[self.light_uniform]),
+            );
 
-        self.camera.update(&self.queue, &self.keyboard);
+            self.camera.update(&self.queue, &self.keyboard);
 
-        self.body_collider.update_capsule(&self.queue);
-        self.head_collider
-            .update_round_cylinder(&self.device, &self.queue);
+            self.physics.update(delta_time);
+            self.queue.write_buffer(
+                &self.rei_instance_buffer,
+                0,
+                bytemuck::cast_slice(&self.physics.instances()),
+            );
+        }
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {

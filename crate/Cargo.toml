@@ -29,6 +29,7 @@ egui-wgpu = "0.22"
 egui_winit_platform = "0.19"
 rapier3d = "0.17"
 instant = "0.1"
+rand = "0.8.5"
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"

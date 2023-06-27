@@ -11,6 +11,17 @@ struct VertexOutput {
     @location(2) world_position: vec3<f32>,
 };
 
+struct InstanceInput {
+    @location(5) m0: vec4<f32>,
+    @location(6) m1: vec4<f32>,
+    @location(7) m2: vec4<f32>,
+    @location(8) m3: vec4<f32>,
+
+    @location(9) r0: vec3<f32>,
+    @location(10) r1: vec3<f32>,
+    @location(11) r2: vec3<f32>,
+};
+
 struct Camera {
     position: vec4<f32>,
     matrix: mat4x4<f32>,
@@ -28,21 +39,27 @@ var<uniform> camera: Camera;
 var<uniform> light: Light;
 
 @vertex
-fn vs_main(in: VertexInput) -> VertexOutput {
+fn vs_main(in: VertexInput, instance: InstanceInput) -> VertexOutput {
     var out: VertexOutput;
-    // Orthographic projection
-    // DO NOT RENDER A 3D MODEL OF A HUMAN WITH AN ORTHOGRAPHIC PROJECTION
-    // WEIRDEST SHIT IVE EVER SEEN
-    // out.clip_position = vec4<f32>(in.position.x/2.0, in.position.y/2.0 - 1.0, in.position.z, 1.0);
+    let instance_matrix = mat4x4<f32>(
+        instance.m0,
+        instance.m1,
+        instance.m2,
+        instance.m3
+    );
+
+    let rotation_matrix = mat3x3<f32>(
+        instance.r0,
+        instance.r1,
+        instance.r2
+    );
 
     // Perspective projection using the camera uniform binding
 
-    // Currently I have no instance data for rei, she is just at the origin
-    // with no rotation. Thus, lighting should work even without position/rotation
-    // But i will have to implement that.
-    out.world_position = in.position;
-    out.world_normal = in.normal;
-    out.clip_position = camera.matrix * vec4<f32>(in.position, 1.0);
+    let position = instance_matrix * vec4<f32>(in.position, 1.0);
+    out.world_position = position.xyz;
+    out.world_normal = rotation_matrix * in.normal;
+    out.clip_position = camera.matrix * position;
     out.tex_coords = in.tex_coords;
     return out;
 }

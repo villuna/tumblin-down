@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::f32::consts::PI;
 
 use rapier3d::prelude::*;
@@ -8,7 +9,7 @@ const GRAVITY: Vector<f32> = vector![0.0, -9.81, 0.0];
 
 // https://www.youtube.com/watch?v=x4tw4CIuBks
 #[derive(Default)]
-struct PhysicsSimulation {
+pub struct PhysicsSimulation {
     collider_set: ColliderSet,
     rigidbody_set: RigidBodySet,
     integration_parameters: IntegrationParameters,
@@ -19,8 +20,6 @@ struct PhysicsSimulation {
     impulse_joint_set: ImpulseJointSet,
     multibody_joint_set: MultibodyJointSet,
     ccd_solver: CCDSolver,
-
-    reis: Vec<RigidBodyHandle>,
 }
 
 impl PhysicsSimulation {
@@ -31,9 +30,16 @@ impl PhysicsSimulation {
         let ground = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();
         collider_set.insert(ground);
 
+        let mut rng = rand::thread_rng();
+
         let rei = rigidbody_set.insert(
             RigidBodyBuilder::dynamic()
-                .translation(vector![0.0, 5.0, 0.0])
+                .translation(vector![0.0, 10.0, 0.0])
+                .rotation(vector![
+                    rng.gen_range(0.0..6.18),
+                    rng.gen_range(0.0..6.18),
+                    rng.gen_range(0.0..6.18)
+                ])
                 .build(),
         );
         collider_set.insert_with_parent(rei_collider(), rei, &mut rigidbody_set);
@@ -85,5 +91,6 @@ fn rei_collider() -> rapier3d::prelude::Collider {
 
     ColliderBuilder::compound(vec![(head_trans, head_shape), (body_trans, body_shape)])
         .density(1.0)
+        .restitution(0.8)
         .build()
 }

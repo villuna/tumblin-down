@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::model::Instance;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
