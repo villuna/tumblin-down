@@ -529,8 +529,10 @@ impl App {
     }
 
     fn ui(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Hello world!").show(ctx, |ui| {
-            ui.label("holy guacamole");
+        egui::Window::new("evan the gelion").show(ctx, |ui| {
+            ui.label("wasd to move around\nspace and shift to go up and down\narrow keys to look around.");
+
+            ui.add_space(50.0);
 
             ui.horizontal(|ui| {
                 ui.label("Light colour: ");
@@ -541,7 +543,7 @@ impl App {
                 self.light_uniform.colour = hsva.to_rgb();
             });
 
-            if ui.button("Reset").clicked() {
+            if ui.button("reset simulation").clicked() {
                 self.physics = PhysicsSimulation::new();
             }
         });
