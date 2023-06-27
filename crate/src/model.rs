@@ -1,3 +1,4 @@
+// TODO: Switch over entirely to nalgebra to work well with rapier3d
 use std::io::{BufReader, Cursor};
 
 use crate::{resources, texture};

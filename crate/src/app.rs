@@ -46,19 +46,6 @@ pub enum State {
 
 pub const SAMPLE_COUNT: u32 = 4;
 
-fn rei_collider() -> rapier3d::prelude::Collider {
-    let head_shape = SharedShape::round_cylinder(0.4, 0.95, 0.5);
-    let body_shape = SharedShape::capsule_y(0.7, 0.65);
-
-    let head_trans = Isometry3::from_parts(
-        Translation3::new(0.0, 1.1, 0.0),
-        UnitQuaternion::new(Vector3::x() * PI / 2.0),
-    );
-    let body_trans = Isometry3::translation(0.0, 3.35, -0.1);
-
-    ColliderBuilder::compound(vec![(head_trans, head_shape), (body_trans, body_shape)]).build()
-}
-
 pub struct App {
     // WGPU stuff
     surface: wgpu::Surface,

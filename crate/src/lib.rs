@@ -4,7 +4,10 @@ use std::{
 };
 
 use cfg_if::cfg_if;
-use kira::sound::{PlaybackState, static_sound::{StaticSoundData, StaticSoundSettings}};
+use kira::sound::{
+    static_sound::{StaticSoundData, StaticSoundSettings},
+    PlaybackState,
+};
 use resources::load_bytes;
 use std::future::Future;
 use winit::{
@@ -20,6 +23,7 @@ mod debug_collider;
 mod input;
 mod light;
 mod model;
+mod physics;
 mod resources;
 mod texture;
 
