@@ -4,18 +4,18 @@ use cgmath::{Deg, Quaternion, Rotation3, Vector3};
 #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct LightUniform {
     pub position: [f32; 3],
-    _padding0: u32,
+    pub scale: f32,
     pub colour: [f32; 3],
-    _padding1: u32,
+    pub brightness: f32,
 }
 
 impl LightUniform {
-    pub fn new(position: [f32; 3], colour: [f32; 3]) -> Self {
+    pub fn new(position: [f32; 3], colour: [f32; 3], scale: f32, brightness: f32) -> Self {
         Self {
             position,
-            _padding0: 0,
+            scale,
             colour,
-            _padding1: 0,
+            brightness,
         }
     }
 

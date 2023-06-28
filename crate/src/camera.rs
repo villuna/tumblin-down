@@ -11,6 +11,7 @@ const HALFPI: f32 = PI / 2.0;
 
 static CAMERA_BIND_GROUP_LAYOUT: OnceLock<wgpu::BindGroupLayout> = OnceLock::new();
 
+#[derive(Debug)]
 pub struct Camera {
     pub eye: Point3<f32>,
     pub h_angle: f32, // Horizontal angle in radians (h_angle \in [0, 2pi))
@@ -91,7 +92,7 @@ impl Camera {
             aspect,
             fovy: 45.0,
             znear: 0.1,
-            zfar: 100.0,
+            zfar: 200.0,
             buffer,
             bind_group,
         };

@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{sync::Arc, f32::INFINITY};
 
+use egui::DragValue;
 use instant::Instant;
 
 use anyhow::anyhow;
@@ -19,7 +20,7 @@ use winit::{
     window::Window,
 };
 
-use crate::camera::Camera;
+use crate::{camera::Camera, physics};
 use crate::light;
 use crate::{input, model::InstanceRaw, physics::PhysicsSimulation};
 use crate::{
@@ -83,6 +84,10 @@ pub struct App {
 
     physics: PhysicsSimulation,
     rei_instance_buffer: wgpu::Buffer,
+
+    frames_counted: u32,
+    frame_counter: Instant,
+    fps: f32,
 }
 
 fn create_render_pipeline(
@@ -209,11 +214,11 @@ impl App {
         let camera = Camera::new(
             &device,
             &queue,
-            (0.0, 2.0, 6.0).into(),
+            (0.25, 3.8, 9.65).into(),
             config.width as f32 / config.height as f32,
         );
 
-        let light_uniform = light::LightUniform::new([2.0, 3.0, 2.0], [0.96, 0.68, 1.0]);
+        let light_uniform = light::LightUniform::new([2.0, 3.0, 2.0], [0.96, 0.68, 1.0], 15.0, 1.5);
 
         let light_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Light buffer"),
@@ -346,11 +351,14 @@ impl App {
 
         let physics = PhysicsSimulation::new();
 
-        let rei_instance_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        let rei_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Rei instance buffer"),
-            contents: bytemuck::cast_slice(&physics.instances()),
+            size: (std::mem::size_of::<InstanceRaw>() * (physics::NUM_REIS + 1)) as _,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+
+        queue.write_buffer(&rei_instance_buffer, 0, bytemuck::cast_slice(&physics.instances()));
 
         Ok(Self {
             surface,
@@ -382,6 +390,11 @@ impl App {
             start_time: Instant::now(),
             physics,
             rei_instance_buffer,
+            frames_counted: 0,
+            frame_counter: Instant::now(),
+            fps: 0.0,
+
+
         })
     }
 
@@ -520,7 +533,7 @@ impl App {
             render_pass.set_bind_group(1, material.diffuse_bind_group.as_ref().unwrap(), &[]);
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..mesh.num_indices, 0, 0..self.physics.num_instances() as _);
         }
 
         // Egui draw
@@ -539,7 +552,7 @@ impl App {
         egui::Window::new("evan the gelion").show(ctx, |ui| {
             ui.label("wasd to move around\nspace and shift to go up and down\narrow keys to look around.");
 
-            ui.add_space(50.0);
+            ui.add_space(30.0);
 
             ui.horizontal(|ui| {
                 ui.label("Light colour: ");
@@ -550,9 +563,30 @@ impl App {
                 self.light_uniform.colour = hsva.to_rgb();
             });
 
+            ui.horizontal(|ui| {
+                ui.label("Light scale: ");
+
+                ui.add(DragValue::new(&mut self.light_uniform.scale).clamp_range(0.1..=INFINITY).speed(0.25));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Light brightness: ");
+
+                ui.add(DragValue::new(&mut self.light_uniform.brightness).clamp_range(0.0..=INFINITY).speed(0.1));
+            });
+
             if ui.button("reset simulation").clicked() {
                 self.physics = PhysicsSimulation::new();
             }
+
+            ui.add_space(10.0);
+
+            ui.label(format!("Fps: {}", self.fps));
+            ui.label(format!("Reis: {}", self.physics.num_instances()));
+
+            ui.collapsing("Camera info", |ui| {
+                ui.label(format!("{:#?}", self.camera))
+            });
         });
     }
 
@@ -577,6 +611,15 @@ impl App {
     }
 
     pub fn update(&mut self, delta_time: f32) {
+        self.frames_counted += 1;
+        let elapsed = self.frame_counter.elapsed().as_secs_f32();
+
+        if elapsed >= 1.0 {
+            self.fps = self.frames_counted as f32 / elapsed;
+            self.frame_counter = Instant::now();
+            self.frames_counted = 0;
+        }
+
         if self.state == State::Playing {
             self.light_uniform.update();
             self.queue.write_buffer(

@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{Rng, thread_rng};
 use std::f32::consts::PI;
 
 use rapier3d::prelude::*;
@@ -6,6 +6,8 @@ use rapier3d::prelude::*;
 use crate::model::{Instance, InstanceRaw};
 
 const GRAVITY: Vector<f32> = vector![0.0, -9.81, 0.0];
+const REI_SPAWN_TIME: f32 = 3.157 / 8.0;
+pub const NUM_REIS: usize = 300;
 
 // https://www.youtube.com/watch?v=x4tw4CIuBks
 #[derive(Default)]
@@ -20,6 +22,19 @@ pub struct PhysicsSimulation {
     impulse_joint_set: ImpulseJointSet,
     multibody_joint_set: MultibodyJointSet,
     ccd_solver: CCDSolver,
+    reis: Vec<RigidBodyHandle>,
+    timer: f32,
+    rei_index: usize,
+}
+
+fn random_rotation() -> Vector<f32> {
+    let mut rng = thread_rng();
+
+    vector![
+        rng.gen_range(0.0..6.18),
+        rng.gen_range(0.0..6.18),
+        rng.gen_range(0.0..6.18)
+    ]
 }
 
 impl PhysicsSimulation {
@@ -27,19 +42,12 @@ impl PhysicsSimulation {
         let mut collider_set = ColliderSet::new();
         let mut rigidbody_set = RigidBodySet::new();
 
-        let ground = ColliderBuilder::cuboid(100.0, 0.1, 100.0).build();
+        let ground = ColliderBuilder::cuboid(1000.0, 0.1, 1000.0).build();
         collider_set.insert(ground);
 
-        let mut rng = rand::thread_rng();
-
         let rei = rigidbody_set.insert(
-            RigidBodyBuilder::dynamic()
-                .translation(vector![0.0, 10.0, 0.0])
-                .rotation(vector![
-                    rng.gen_range(0.0..6.18),
-                    rng.gen_range(0.0..6.18),
-                    rng.gen_range(0.0..6.18)
-                ])
+            RigidBodyBuilder::fixed()
+                .translation(vector![0.0, 0.0, 0.0])
                 .build(),
         );
         collider_set.insert_with_parent(rei_collider(), rei, &mut rigidbody_set);
@@ -47,11 +55,49 @@ impl PhysicsSimulation {
         Self {
             collider_set,
             rigidbody_set,
+            reis: Vec::with_capacity(NUM_REIS),
             ..Default::default()
         }
     }
 
+    fn spawn_rei(&mut self) {
+        let mut rng = thread_rng();
+
+        let rei = self.rigidbody_set.insert(
+            RigidBodyBuilder::dynamic()
+            .translation(vector![rng.gen_range(-20.0..20.0), 10.0, rng.gen_range(-50.0..0.0)])
+            .rotation(random_rotation())
+            .build()
+        );
+        self.collider_set.insert_with_parent(rei_collider(), rei, &mut self.rigidbody_set);
+
+        if self.reis.len() < NUM_REIS {
+            self.reis.push(rei);
+        } else {
+            self.remove_rei(self.rei_index);
+            self.reis[self.rei_index] = rei;
+            self.rei_index = (self.rei_index + 1) % NUM_REIS;
+        }
+    }
+
+    fn remove_rei(&mut self, rei_index: usize) {
+        self.rigidbody_set.remove(self.reis[rei_index], 
+            &mut self.island_manager, 
+            &mut self.collider_set, 
+            &mut self.impulse_joint_set, 
+            &mut self.multibody_joint_set, 
+            true 
+        );
+    }
+
     pub fn update(&mut self, delta_time: f32) {
+        self.timer += delta_time;
+        
+        if self.timer >= REI_SPAWN_TIME {
+            self.timer = 0.0;
+            self.spawn_rei();
+        }
+
         self.integration_parameters.dt = delta_time;
 
         self.physics_pipeline.step(
@@ -76,6 +122,10 @@ impl PhysicsSimulation {
             .iter()
             .map(|(_, rb)| Instance::from_rapier_position(rb.position()).to_raw())
             .collect()
+    }
+
+    pub fn num_instances(&self) -> usize {
+        self.reis.len() + 1
     }
 }
 

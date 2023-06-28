@@ -15,7 +15,9 @@ struct Camera {
 
 struct Light {
     position: vec3<f32>,
+    scale: f32,
     colour: vec3<f32>,
+    brightness: f32,
 }
 
 @group(0) @binding(0)

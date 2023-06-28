@@ -29,7 +29,9 @@ struct Camera {
 
 struct Light {
     position: vec3<f32>,
+    scale: f32,
     colour: vec3<f32>,
+    brightness: f32,
 }
 
 @group(0) @binding(0)
@@ -91,7 +93,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular_strength = pow(max(dot(view_dir, half_dir), 0.0), 10.0) * 0.4;
     let specular_colour = light.colour * specular_strength;
 
-    let result = (ambient_colour + diffuse_colour + specular_colour) * object_colour.xyz;
+    var distance_scale: f32;
+    let distance= distance(in.world_position, light.position);
+    let cutoff = 0.1;
+
+    if distance <= cutoff {
+        distance_scale = light.brightness;
+    } else {
+        let dist_from_cutoff = (distance - cutoff + light.scale) / light.scale;
+        distance_scale = light.brightness / (dist_from_cutoff*dist_from_cutoff);
+    }
+
+    let result = (ambient_colour + (diffuse_colour + specular_colour) * distance_scale) * object_colour.xyz;
 
     return vec4<f32>(result, object_colour.a);
 }
