@@ -176,6 +176,7 @@ impl App {
                     features: wgpu::Features::empty(),
                     limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_webgl2_defaults()
+                            .using_resolution(wgpu::Limits::default())
                     } else {
                         wgpu::Limits::default()
                     },
@@ -259,9 +260,12 @@ impl App {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("model shader"),
             source: wgpu::ShaderSource::Wgsl(
+                #[cfg(debug_assertions)]
                 resources::load_string("shaders/model_shader.wgsl")
                     .await?
                     .into(),
+                #[cfg(not(debug_assertions))]
+                include_str!("../shaders/model_shader.wgsl").into(),
             ),
         });
 
@@ -282,9 +286,12 @@ impl App {
         let light_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Light shader"),
             source: wgpu::ShaderSource::Wgsl(
+                #[cfg(debug_assertions)]
                 resources::load_string("shaders/light_shader.wgsl")
                     .await?
                     .into(),
+                #[cfg(not(debug_assertions))]
+                include_str!("../shaders/light_shader.wgsl").into(),
             ),
         });
 

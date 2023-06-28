@@ -2,7 +2,7 @@
 use cfg_if::cfg_if;
 
 #[cfg(target_arch = "wasm32")]
-const CRATE_LOCATION: &str = "crate/";
+const CRATE_LOCATION: &str = "";
 
 #[cfg(target_arch = "wasm32")]
 fn format_url(file_name: &str) -> reqwest::Url {
