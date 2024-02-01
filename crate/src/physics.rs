@@ -6,8 +6,8 @@ use rapier3d::prelude::*;
 use crate::model::{Instance, InstanceRaw};
 
 const GRAVITY: Vector<f32> = vector![0.0, -9.81, 0.0];
-const REI_SPAWN_TIME: f32 = 3.157 / 8.0;
-pub const NUM_REIS: usize = 300;
+const REI_SPAWN_TIME: f32 = 3.157 / 16.0;
+pub const NUM_REIS: usize = 1000;
 
 // https://www.youtube.com/watch?v=x4tw4CIuBks
 #[derive(Default)]

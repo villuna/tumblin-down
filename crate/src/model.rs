@@ -220,7 +220,7 @@ impl Instance {
 }
 
 impl ModelVertex {
-    const ATTRS: &[wgpu::VertexAttribute] =
+    const ATTRS: &'static [wgpu::VertexAttribute] =
         &vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x3];
 }
 
